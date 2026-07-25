@@ -165,5 +165,5 @@ router.delete('/users/:id', authMiddleware, (req, res) => {
   res.json({ success: true });
 });
 
+router.JWT_SECRET = JWT_SECRET;
 module.exports = router;
-module.exports.JWT_SECRET = JWT_SECRET;
