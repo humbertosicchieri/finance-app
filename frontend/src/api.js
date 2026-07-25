@@ -1,16 +1,99 @@
 const API_BASE = '/api';
 
+function getToken() {
+  return localStorage.getItem('financeflow_token');
+}
+
+function setToken(token) {
+  localStorage.setItem('financeflow_token', token);
+}
+
+function removeToken() {
+  localStorage.removeItem('financeflow_token');
+}
+
+function getUser() {
+  const user = localStorage.getItem('financeflow_user');
+  return user ? JSON.parse(user) : null;
+}
+
+function setUser(user) {
+  localStorage.setItem('financeflow_user', JSON.stringify(user));
+}
+
+function removeUser() {
+  localStorage.removeItem('financeflow_user');
+}
+
 async function request(url, options = {}) {
-  const res = await fetch(`${API_BASE}${url}`, {
-    headers: { 'Content-Type': 'application/json', ...options.headers },
-    ...options,
-  });
+  const token = getToken();
+  const headers = {
+    'Content-Type': 'application/json',
+    ...options.headers,
+  };
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
+  const res = await fetch(`${API_BASE}${url}`, { ...options, headers });
+
+  if (res.status === 401) {
+    removeToken();
+    removeUser();
+    window.location.reload();
+    throw new Error('Sessão expirada');
+  }
+
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: 'Erro na requisição' }));
     throw new Error(err.error || 'Erro na requisição');
   }
   return res.json();
 }
+
+export const auth = {
+  login: async (username, password) => {
+    const res = await fetch(`${API_BASE}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Erro na requisição' }));
+      throw new Error(err.error || 'Erro na requisição');
+    }
+    const data = await res.json();
+    setToken(data.token);
+    setUser(data.user);
+    return data;
+  },
+  logout: () => {
+    removeToken();
+    removeUser();
+  },
+  verify: async () => {
+    const token = getToken();
+    if (!token) return null;
+    try {
+      const res = await fetch(`${API_BASE}/auth/verify`, {
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+      if (!res.ok) {
+        removeToken();
+        removeUser();
+        return null;
+      }
+      const data = await res.json();
+      return data.user;
+    } catch {
+      removeToken();
+      removeUser();
+      return null;
+    }
+  },
+  isAuthenticated: () => !!getToken(),
+  getUser,
+};
 
 export const api = {
   dashboard: {

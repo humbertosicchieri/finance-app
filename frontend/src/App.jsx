@@ -1,6 +1,8 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, NavLink } from 'react-router-dom';
-import { LayoutDashboard, Receipt, CreditCard, ArrowDownUp, Settings, Menu, X, TrendingUp } from 'lucide-react';
+import { LayoutDashboard, Receipt, CreditCard, TrendingUp, LogOut, Menu, ArrowDownUp } from 'lucide-react';
+import { auth } from './api';
+import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import Expenses from './pages/Expenses';
 import Cards from './pages/Cards';
@@ -13,7 +15,7 @@ const navItems = [
   { to: '/incomes', icon: TrendingUp, label: 'Receitas' },
 ];
 
-function Sidebar({ open, setOpen }) {
+function Sidebar({ open, setOpen, user, onLogout }) {
   return (
     <>
       <div className={`fixed inset-0 bg-black/50 z-40 lg:hidden ${open ? 'block' : 'hidden'}`} onClick={() => setOpen(false)} />
@@ -49,11 +51,18 @@ function Sidebar({ open, setOpen }) {
           ))}
         </nav>
 
-        <div className="absolute bottom-0 left-0 right-0 p-4">
-          <div className="card bg-gradient-to-br from-primary-600/10 to-primary-800/10 border-primary-500/20">
-            <p className="text-xs text-dark-400">v1.0.0</p>
-            <p className="text-xs text-dark-500 mt-1">Gestão financeira pessoal</p>
+        <div className="absolute bottom-0 left-0 right-0 p-4 space-y-3">
+          <div className="card bg-dark-800/50">
+            <p className="text-sm font-medium text-white">{user?.name || user?.username}</p>
+            <p className="text-xs text-dark-400">{user?.role === 'admin' ? 'Administrador' : 'Usuário'}</p>
           </div>
+          <button
+            onClick={onLogout}
+            className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-dark-400 hover:text-red-400 hover:bg-red-500/10 transition-all duration-200"
+          >
+            <LogOut className="w-5 h-5" />
+            <span className="font-medium">Sair</span>
+          </button>
         </div>
       </aside>
     </>
@@ -83,12 +92,46 @@ function Header({ onMenuClick }) {
 }
 
 export default function App() {
+  const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(true);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  useEffect(() => {
+    const checkAuth = async () => {
+      const userData = await auth.verify();
+      if (userData) {
+        setUser(userData);
+      }
+      setLoading(false);
+    };
+    checkAuth();
+  }, []);
+
+  const handleLogin = (userData) => {
+    setUser(userData);
+  };
+
+  const handleLogout = () => {
+    auth.logout();
+    setUser(null);
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-dark-950 flex items-center justify-center">
+        <div className="animate-spin w-8 h-8 border-2 border-primary-500 border-t-transparent rounded-full" />
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <Login onLogin={handleLogin} />;
+  }
 
   return (
     <Router>
       <div className="min-h-screen bg-dark-950">
-        <Sidebar open={sidebarOpen} setOpen={setSidebarOpen} />
+        <Sidebar open={sidebarOpen} setOpen={setSidebarOpen} user={user} onLogout={handleLogout} />
         <div className="lg:ml-64">
           <Header onMenuClick={() => setSidebarOpen(true)} />
           <main className="p-4 lg:p-8">
