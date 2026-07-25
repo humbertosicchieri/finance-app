@@ -1,12 +1,14 @@
 FROM node:20-alpine AS backend-deps
+RUN apk add --no-cache python3 make g++
 WORKDIR /app/backend
 COPY backend/package*.json ./
-RUN npm ci --only=production
+RUN npm install --omit=dev
 
 FROM node:20-alpine AS frontend-build
+RUN apk add --no-cache git python3 make g++
 WORKDIR /app/frontend
 COPY frontend/package*.json ./
-RUN npm ci
+RUN npm install
 COPY frontend/ .
 RUN npm run build
 
