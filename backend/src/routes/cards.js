@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const db = require('./database');
+const db = require('../database');
 
 router.get('/', (req, res) => {
   const cards = db.prepare('SELECT * FROM credit_cards ORDER BY created_at DESC').all();
