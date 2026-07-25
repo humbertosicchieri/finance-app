@@ -3,9 +3,9 @@ const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const db = require('../database');
 const authMiddleware = require('../middleware');
+const JWT_SECRET = require('../config');
 const router = express.Router();
 
-const JWT_SECRET = process.env.JWT_SECRET || 'financeflow-secret-key-2024';
 const TOKEN_EXPIRY = '24h';
 
 function hashPassword(password) {
@@ -165,5 +165,4 @@ router.delete('/users/:id', authMiddleware, (req, res) => {
   res.json({ success: true });
 });
 
-router.JWT_SECRET = JWT_SECRET;
 module.exports = router;
