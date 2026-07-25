@@ -1,0 +1,23 @@
+version: '3.8'
+
+services:
+  finance-app:
+    build: .
+    container_name: financeflow
+    ports:
+      - "3000:3000"
+    volumes:
+      - finance-data:/app/data
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - DB_PATH=/app/data/finance.db
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3000/api/dashboard"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  finance-data:
