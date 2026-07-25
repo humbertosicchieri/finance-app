@@ -123,14 +123,17 @@ router.put('/users/:id/password', authMiddleware, (req, res) => {
     return res.status(403).json({ error: 'Acesso negado' });
   }
 
-  if (!newPassword) {
-    return res.status(400).json({ error: 'Nova senha é obrigatória' });
+  if (!newPassword || newPassword.length < 6) {
+    return res.status(400).json({ error: 'Nova senha deve ter no mínimo 6 caracteres' });
   }
 
   const user = db.prepare('SELECT * FROM users WHERE id = ?').get(id);
   if (!user) return res.status(404).json({ error: 'Usuário não encontrado' });
 
-  if (req.user.role !== 'admin' && currentPassword) {
+  if (req.user.role !== 'admin') {
+    if (!currentPassword) {
+      return res.status(400).json({ error: 'Senha atual é obrigatória' });
+    }
     const hashedCurrent = hashPassword(currentPassword);
     if (user.password !== hashedCurrent) {
       return res.status(401).json({ error: 'Senha atual incorreta' });

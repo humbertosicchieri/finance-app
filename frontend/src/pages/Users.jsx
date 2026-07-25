@@ -79,7 +79,7 @@ function PasswordForm({ userId, onSubmit, onClose }) {
       setError('A senha deve ter no mínimo 6 caracteres');
       return;
     }
-    onSubmit({ newPassword: form.newPassword });
+    onSubmit({ currentPassword: form.currentPassword, newPassword: form.newPassword });
   };
 
   return (
