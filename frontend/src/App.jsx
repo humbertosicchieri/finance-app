@@ -1,18 +1,23 @@
 import { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, NavLink } from 'react-router-dom';
-import { LayoutDashboard, Receipt, CreditCard, TrendingUp, LogOut, Menu, ArrowDownUp } from 'lucide-react';
+import { LayoutDashboard, Receipt, CreditCard, TrendingUp, LogOut, Menu, ArrowDownUp, Users as UsersIcon, Shield } from 'lucide-react';
 import { auth } from './api';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import Expenses from './pages/Expenses';
 import Cards from './pages/Cards';
 import Incomes from './pages/Incomes';
+import Users from './pages/Users';
 
 const navItems = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
   { to: '/expenses', icon: Receipt, label: 'Despesas' },
   { to: '/cards', icon: CreditCard, label: 'Cartões' },
   { to: '/incomes', icon: TrendingUp, label: 'Receitas' },
+];
+
+const adminItems = [
+  { to: '/users', icon: UsersIcon, label: 'Usuários', adminOnly: true },
 ];
 
 function Sidebar({ open, setOpen, user, onLogout }) {
@@ -49,6 +54,32 @@ function Sidebar({ open, setOpen, user, onLogout }) {
               <span className="font-medium">{item.label}</span>
             </NavLink>
           ))}
+
+          {user?.role === 'admin' && (
+            <>
+              <div className="my-3 border-t border-dark-700/50" />
+              <p className="px-4 text-xs font-medium text-dark-500 uppercase tracking-wider flex items-center gap-2">
+                <Shield className="w-3 h-3" /> Administração
+              </p>
+              {adminItems.map((item) => (
+                <NavLink
+                  key={item.to}
+                  to={item.to}
+                  onClick={() => setOpen(false)}
+                  className={({ isActive }) =>
+                    `flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 ${
+                      isActive
+                        ? 'bg-yellow-500/10 text-yellow-400 border border-yellow-500/20'
+                        : 'text-dark-400 hover:text-white hover:bg-dark-800'
+                    }`
+                  }
+                >
+                  <item.icon className="w-5 h-5" />
+                  <span className="font-medium">{item.label}</span>
+                </NavLink>
+              ))}
+            </>
+          )}
         </nav>
 
         <div className="absolute bottom-0 left-0 right-0 p-4 space-y-3">
@@ -140,6 +171,7 @@ export default function App() {
               <Route path="/expenses" element={<Expenses />} />
               <Route path="/cards" element={<Cards />} />
               <Route path="/incomes" element={<Incomes />} />
+              <Route path="/users" element={<Users currentUser={user} />} />
             </Routes>
           </main>
         </div>

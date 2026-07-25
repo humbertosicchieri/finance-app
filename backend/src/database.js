@@ -1,5 +1,10 @@
 const Database = require('better-sqlite3');
+const crypto = require('crypto');
 const path = require('path');
+
+function hashPassword(password) {
+  return crypto.createHash('sha256').update(password).digest('hex');
+}
 
 const dbPath = process.env.DB_PATH || path.join(__dirname, '..', 'data', 'finance.db');
 
@@ -85,6 +90,16 @@ db.exec(`
     FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL
   );
 
+  CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT NOT NULL UNIQUE,
+    password TEXT NOT NULL,
+    name TEXT NOT NULL,
+    role TEXT CHECK(role IN ('admin','user')) DEFAULT 'user',
+    is_active INTEGER DEFAULT 1,
+    created_at TEXT DEFAULT (datetime('now'))
+  );
+
   CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value TEXT
@@ -118,5 +133,17 @@ const insertMany = db.transaction((cats) => {
 });
 
 insertMany(defaultCategories);
+
+const defaultUsers = [
+  { username: 'humbertoadm', password: hashPassword('031106hC!'), name: 'Humberto Admin', role: 'admin' }
+];
+
+const insertUser = db.prepare(
+  'INSERT OR IGNORE INTO users (username, password, name, role) VALUES (?, ?, ?, ?)'
+);
+
+for (const u of defaultUsers) {
+  insertUser.run(u.username, u.password, u.name, u.role);
+}
 
 module.exports = db;

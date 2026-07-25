@@ -135,4 +135,11 @@ export const api = {
     update: (id, data) => request(`/incomes/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     delete: (id) => request(`/incomes/${id}`, { method: 'DELETE' }),
   },
+  users: {
+    list: () => request('/auth/users'),
+    create: (data) => request('/auth/users', { method: 'POST', body: JSON.stringify(data) }),
+    update: (id, data) => request(`/auth/users/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+    delete: (id) => request(`/auth/users/${id}`, { method: 'DELETE' }),
+    changePassword: (id, data) => request(`/auth/users/${id}/password`, { method: 'PUT', body: JSON.stringify(data) }),
+  },
 };
