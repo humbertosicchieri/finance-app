@@ -4,27 +4,78 @@ const crypto = require('crypto');
 const db = require('../database');
 const authMiddleware = require('../middleware');
 const JWT_SECRET = require('../config');
+const { generateCaptcha, verifyCaptcha, validatePasswordStrength } = require('../captcha');
 const router = express.Router();
 
 const TOKEN_EXPIRY = '24h';
+
+const loginAttempts = new Map();
 
 function hashPassword(password) {
   return crypto.createHash('sha256').update(password).digest('hex');
 }
 
+function isLoginBlocked(ip) {
+  const record = loginAttempts.get(ip);
+  if (!record) return false;
+  if (Date.now() - record.windowStart > 15 * 60 * 1000) {
+    loginAttempts.delete(ip);
+    return false;
+  }
+  return record.attempts >= 5;
+}
+
+function recordLoginAttempt(ip, success) {
+  if (success) {
+    loginAttempts.delete(ip);
+    return;
+  }
+  const record = loginAttempts.get(ip) || { attempts: 0, windowStart: Date.now() };
+  record.attempts++;
+  if (Date.now() - record.windowStart > 15 * 60 * 1000) {
+    record.attempts = 1;
+    record.windowStart = Date.now();
+  }
+  loginAttempts.set(ip, record);
+}
+
+router.get('/captcha', (req, res) => {
+  const captcha = generateCaptcha();
+  res.json(captcha);
+});
+
 router.post('/login', (req, res) => {
-  const { username, password } = req.body;
+  const ip = req.ip || req.connection.remoteAddress;
+
+  if (isLoginBlocked(ip)) {
+    return res.status(429).json({ error: 'Muitas tentativas. Tente novamente em 15 minutos.' });
+  }
+
+  const { username, password, captchaId, captchaAnswer } = req.body;
 
   if (!username || !password) {
     return res.status(400).json({ error: 'Usuário e senha são obrigatórios' });
+  }
+
+  if (!captchaId || captchaAnswer === undefined && captchaAnswer !== 0) {
+    return res.status(400).json({ error: 'CAPTCHA é obrigatório' });
+  }
+
+  const captchaResult = verifyCaptcha(captchaId, captchaAnswer);
+  if (!captchaResult.valid) {
+    recordLoginAttempt(ip, false);
+    return res.status(401).json({ error: captchaResult.error });
   }
 
   const hashedPassword = hashPassword(password);
   const user = db.prepare('SELECT * FROM users WHERE username = ? AND password = ? AND is_active = 1').get(username, hashedPassword);
 
   if (!user) {
+    recordLoginAttempt(ip, false);
     return res.status(401).json({ error: 'Usuário ou senha inválidos' });
   }
+
+  recordLoginAttempt(ip, true);
 
   const token = jwt.sign(
     { id: user.id, username: user.username, name: user.name, role: user.role },
@@ -83,6 +134,11 @@ router.post('/users', authMiddleware, (req, res) => {
     return res.status(409).json({ error: 'Usuário já existe' });
   }
 
+  const passwordErrors = validatePasswordStrength(password);
+  if (passwordErrors.length > 0) {
+    return res.status(400).json({ error: 'Senha fraca', details: passwordErrors });
+  }
+
   try {
     const hashedPassword = hashPassword(password);
     const result = db.prepare(
@@ -123,8 +179,13 @@ router.put('/users/:id/password', authMiddleware, (req, res) => {
     return res.status(403).json({ error: 'Acesso negado' });
   }
 
-  if (!newPassword || newPassword.length < 6) {
-    return res.status(400).json({ error: 'Nova senha deve ter no mínimo 6 caracteres' });
+  if (!newPassword) {
+    return res.status(400).json({ error: 'Nova senha é obrigatória' });
+  }
+
+  const passwordErrors = validatePasswordStrength(newPassword);
+  if (passwordErrors.length > 0) {
+    return res.status(400).json({ error: 'Senha fraca', details: passwordErrors });
   }
 
   const user = db.prepare('SELECT * FROM users WHERE id = ?').get(id);

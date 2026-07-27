@@ -1,7 +1,52 @@
 import { useState } from 'react';
 import { useApi } from '../hooks/useApi';
 import { api } from '../api';
-import { Plus, Trash2, Edit3, Users as UsersIcon, X, Check, Shield, ShieldOff, Key, UserCheck, UserX } from 'lucide-react';
+import { Plus, Trash2, Users as UsersIcon, X, Check, Shield, ShieldOff, Key, UserCheck, UserX } from 'lucide-react';
+
+function PasswordStrength({ password }) {
+  const getStrength = () => {
+    let score = 0;
+    if (password.length >= 8) score++;
+    if (password.length >= 12) score++;
+    if (/[A-Z]/.test(password)) score++;
+    if (/[a-z]/.test(password)) score++;
+    if (/[0-9]/.test(password)) score++;
+    if (/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password)) score++;
+    return score;
+  };
+
+  const strength = getStrength();
+  const levels = [
+    { label: 'Muito fraca', color: '#ef4444', width: '16%' },
+    { label: 'Fraca', color: '#f97316', width: '33%' },
+    { label: 'Razoável', color: '#f59e0b', width: '50%' },
+    { label: 'Boa', color: '#22c55e', width: '66%' },
+    { label: 'Forte', color: '#10b981', width: '83%' },
+    { label: 'Muito forte', color: '#06b6d4', width: '100%' },
+  ];
+
+  if (!password) return null;
+
+  const level = levels[Math.min(strength, levels.length) - 1] || levels[0];
+
+  return (
+    <div className="mt-2 space-y-2">
+      <div className="w-full bg-dark-700 rounded-full h-1.5">
+        <div className="h-1.5 rounded-full transition-all duration-300" style={{ width: level.width, backgroundColor: level.color }} />
+      </div>
+      <p className="text-xs" style={{ color: level.color }}>{level.label}</p>
+      <div className="grid grid-cols-2 gap-1 text-xs">
+        <span className={password.length >= 8 ? 'text-green-400' : 'text-dark-500'}>{password.length >= 8 ? '✓' : '○'} 8+ caracteres</span>
+        <span className={/[A-Z]/.test(password) ? 'text-green-400' : 'text-dark-500'}>{/[A-Z]/.test(password) ? '✓' : '○'} Maiúscula</span>
+        <span className={/[a-z]/.test(password) ? 'text-green-400' : 'text-dark-500'}>{/[a-z]/.test(password) ? '✓' : '○'} Minúscula</span>
+        <span className={/[0-9]/.test(password) ? 'text-green-400' : 'text-dark-500'}>{/[0-9]/.test(password) ? '✓' : '○'} Número</span>
+        <span className={/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password) ? 'text-green-400 col-span-2' : 'text-dark-500 col-span-2'}>
+          {/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password) ? '✓' : '○'} Caractere especial (!@#$%...)
+        </span>
+      </div>
+    </div>
+  );
+}
 
 function Modal({ isOpen, onClose, title, children }) {
   if (!isOpen) return null;
@@ -19,12 +64,7 @@ function Modal({ isOpen, onClose, title, children }) {
 }
 
 function UserForm({ onSubmit, onClose }) {
-  const [form, setForm] = useState({
-    username: '',
-    password: '',
-    name: '',
-    role: 'user',
-  });
+  const [form, setForm] = useState({ username: '', password: '', name: '', role: 'user' });
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -43,7 +83,8 @@ function UserForm({ onSubmit, onClose }) {
       </div>
       <div>
         <label className="label">Senha *</label>
-        <input className="input" type="password" placeholder="Mínimo 6 caracteres" value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} required minLength={6} />
+        <input className="input" type="password" placeholder="Mínimo 8 caracteres" value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} required minLength={8} />
+        <PasswordStrength password={form.password} />
       </div>
       <div>
         <label className="label">Perfil</label>
@@ -61,11 +102,7 @@ function UserForm({ onSubmit, onClose }) {
 }
 
 function PasswordForm({ userId, onSubmit, onClose }) {
-  const [form, setForm] = useState({
-    currentPassword: '',
-    newPassword: '',
-    confirmPassword: '',
-  });
+  const [form, setForm] = useState({ currentPassword: '', newPassword: '', confirmPassword: '' });
   const [error, setError] = useState('');
 
   const handleSubmit = (e) => {
@@ -75,8 +112,8 @@ function PasswordForm({ userId, onSubmit, onClose }) {
       setError('As senhas não coincidem');
       return;
     }
-    if (form.newPassword.length < 6) {
-      setError('A senha deve ter no mínimo 6 caracteres');
+    if (form.newPassword.length < 8) {
+      setError('A senha deve ter no mínimo 8 caracteres');
       return;
     }
     onSubmit({ currentPassword: form.currentPassword, newPassword: form.newPassword });
@@ -90,11 +127,15 @@ function PasswordForm({ userId, onSubmit, onClose }) {
       </div>
       <div>
         <label className="label">Nova Senha *</label>
-        <input className="input" type="password" placeholder="Mínimo 6 caracteres" value={form.newPassword} onChange={e => setForm({ ...form, newPassword: e.target.value })} required minLength={6} />
+        <input className="input" type="password" placeholder="Mínimo 8 caracteres" value={form.newPassword} onChange={e => setForm({ ...form, newPassword: e.target.value })} required minLength={8} />
+        <PasswordStrength password={form.newPassword} />
       </div>
       <div>
         <label className="label">Confirmar Nova Senha *</label>
-        <input className="input" type="password" placeholder="Repita a nova senha" value={form.confirmPassword} onChange={e => setForm({ ...form, confirmPassword: e.target.value })} required minLength={6} />
+        <input className="input" type="password" placeholder="Repita a nova senha" value={form.confirmPassword} onChange={e => setForm({ ...form, confirmPassword: e.target.value })} required minLength={8} />
+        {form.confirmPassword && form.newPassword !== form.confirmPassword && (
+          <p className="text-red-400 text-xs mt-1">As senhas não coincidem</p>
+        )}
       </div>
       {error && <p className="text-red-400 text-sm">{error}</p>}
       <div className="flex gap-3 pt-2">

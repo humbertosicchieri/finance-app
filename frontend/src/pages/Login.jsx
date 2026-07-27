@@ -1,13 +1,74 @@
-import { useState } from 'react';
-import { ArrowDownUp, Eye, EyeOff, Lock, User, TrendingUp, Wallet, CreditCard } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { ArrowDownUp, Eye, EyeOff, Lock, User, TrendingUp, Wallet, CreditCard, RefreshCw, ShieldCheck } from 'lucide-react';
 import { auth } from '../api';
+
+function PasswordStrength({ password }) {
+  const getStrength = () => {
+    let score = 0;
+    if (password.length >= 8) score++;
+    if (password.length >= 12) score++;
+    if (/[A-Z]/.test(password)) score++;
+    if (/[a-z]/.test(password)) score++;
+    if (/[0-9]/.test(password)) score++;
+    if (/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password)) score++;
+    return score;
+  };
+
+  const strength = getStrength();
+  const levels = [
+    { label: 'Muito fraca', color: '#ef4444', width: '16%' },
+    { label: 'Fraca', color: '#f97316', width: '33%' },
+    { label: 'Razoável', color: '#f59e0b', width: '50%' },
+    { label: 'Boa', color: '#22c55e', width: '66%' },
+    { label: 'Forte', color: '#10b981', width: '83%' },
+    { label: 'Muito forte', color: '#06b6d4', width: '100%' },
+  ];
+
+  if (!password) return null;
+
+  const level = levels[Math.min(strength, levels.length) - 1] || levels[0];
+
+  return (
+    <div className="mt-2 space-y-2">
+      <div className="w-full bg-dark-700 rounded-full h-1.5">
+        <div className="h-1.5 rounded-full transition-all duration-300" style={{ width: level.width, backgroundColor: level.color }} />
+      </div>
+      <p className="text-xs" style={{ color: level.color }}>{level.label}</p>
+      <div className="grid grid-cols-2 gap-1 text-xs">
+        <span className={password.length >= 8 ? 'text-green-400' : 'text-dark-500'}>{password.length >= 8 ? '✓' : '○'} 8+ caracteres</span>
+        <span className={/[A-Z]/.test(password) ? 'text-green-400' : 'text-dark-500'}>{/[A-Z]/.test(password) ? '✓' : '○'} Maiúscula</span>
+        <span className={/[a-z]/.test(password) ? 'text-green-400' : 'text-dark-500'}>{/[a-z]/.test(password) ? '✓' : '○'} Minúscula</span>
+        <span className={/[0-9]/.test(password) ? 'text-green-400' : 'text-dark-500'}>{/[0-9]/.test(password) ? '✓' : '○'} Número</span>
+        <span className={/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password) ? 'text-green-400 col-span-2' : 'text-dark-500 col-span-2'}>
+          {/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password) ? '✓' : '○'} Caractere especial (!@#$%...)
+        </span>
+      </div>
+    </div>
+  );
+}
 
 export default function Login({ onLogin }) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [captcha, setCaptcha] = useState(null);
+  const [captchaAnswer, setCaptchaAnswer] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    loadCaptcha();
+  }, []);
+
+  const loadCaptcha = async () => {
+    try {
+      const data = await auth.getCaptcha();
+      setCaptcha(data);
+      setCaptchaAnswer('');
+    } catch (err) {
+      console.error('Erro ao carregar CAPTCHA:', err);
+    }
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -15,10 +76,11 @@ export default function Login({ onLogin }) {
     setLoading(true);
 
     try {
-      const data = await auth.login(username, password);
+      const data = await auth.login(username, password, captcha.id, captchaAnswer);
       onLogin(data.user);
     } catch (err) {
       setError(err.message || 'Credenciais inválidas');
+      loadCaptcha();
     } finally {
       setLoading(false);
     }
@@ -77,6 +139,16 @@ export default function Login({ onLogin }) {
               <div>
                 <h3 className="font-semibold text-white">Despesas Fixas e Variáveis</h3>
                 <p className="text-sm text-dark-400">Recorrência automática configurável</p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-4 p-4 bg-dark-800/30 backdrop-blur-sm rounded-2xl border border-dark-700/30">
+              <div className="w-12 h-12 bg-yellow-500/10 rounded-xl flex items-center justify-center">
+                <ShieldCheck className="w-6 h-6 text-yellow-400" />
+              </div>
+              <div>
+                <h3 className="font-semibold text-white">Segurança Avançada</h3>
+                <p className="text-sm text-dark-400">CAPTCHA e senhas fortes</p>
               </div>
             </div>
           </div>
@@ -153,9 +225,38 @@ export default function Login({ onLogin }) {
                 </div>
               </div>
 
+              {captcha && (
+                <div>
+                  <label className="label">Verificação de Segurança</label>
+                  <div className="flex items-center gap-3">
+                    <div className="flex-1 bg-dark-900/80 border border-dark-600 rounded-xl px-4 py-3 flex items-center justify-center">
+                      <span className="text-lg font-bold text-white tracking-wider font-mono">
+                        {captcha.question}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={loadCaptcha}
+                      className="p-3 bg-dark-700 hover:bg-dark-600 rounded-xl transition-colors"
+                      title="Gerar novo CAPTCHA"
+                    >
+                      <RefreshCw className="w-5 h-5 text-dark-400" />
+                    </button>
+                  </div>
+                  <input
+                    className="input mt-2"
+                    type="number"
+                    placeholder="Digite o resultado"
+                    value={captchaAnswer}
+                    onChange={e => setCaptchaAnswer(e.target.value)}
+                    required
+                  />
+                </div>
+              )}
+
               <button
                 type="submit"
-                disabled={loading}
+                disabled={loading || !captcha}
                 className="btn-primary w-full justify-center py-3 text-base disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {loading ? (

@@ -52,11 +52,16 @@ async function request(url, options = {}) {
 }
 
 export const auth = {
-  login: async (username, password) => {
+  getCaptcha: async () => {
+    const res = await fetch(`${API_BASE}/auth/captcha`);
+    if (!res.ok) throw new Error('Erro ao gerar CAPTCHA');
+    return res.json();
+  },
+  login: async (username, password, captchaId, captchaAnswer) => {
     const res = await fetch(`${API_BASE}/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, password }),
+      body: JSON.stringify({ username, password, captchaId, captchaAnswer }),
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({ error: 'Erro na requisição' }));
