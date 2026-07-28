@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../database');
+const { getBillingCycle } = require('../billingCycle');
 
 router.get('/', (req, res) => {
   const now = new Date();
@@ -90,18 +91,44 @@ router.get('/', (req, res) => {
   `).all();
 
   const upcomingCardBills = cards.map(card => {
-    const transactions = db.prepare(`
-      SELECT SUM(amount) as total, COUNT(*) as count
+    const cycle = getBillingCycle(card.closing_day);
+
+    const currentCycle = db.prepare(`
+      SELECT COALESCE(SUM(amount), 0) as total, COUNT(*) as count
       FROM card_transactions
-      WHERE card_id = ? AND is_paid = 0
-    `).get(card.id);
+      WHERE card_id = ? AND date >= ? AND date <= ? AND is_paid = 0
+    `).get(card.id, cycle.cycleStart, cycle.cycleEnd);
+
+    const nextCycle = db.prepare(`
+      SELECT COALESCE(SUM(amount), 0) as total
+      FROM card_transactions
+      WHERE card_id = ? AND date >= ? AND is_paid = 0
+    `).get(card.id, cycle.nextCycleStart);
+
+    const totalPending = db.prepare(`
+      SELECT COALESCE(SUM(amount), 0) as total
+      FROM card_transactions WHERE card_id = ? AND is_paid = 0
+    `).get(card.id).total;
+
+    const dueDate = new Date(cycle.cycleEnd);
+    dueDate.setDate(card.due_day);
+    if (card.due_day < card.closing_day) {
+      dueDate.setMonth(dueDate.getMonth() + 1);
+    }
+    const dueDateStr = dueDate.toISOString().split('T')[0];
+    const daysUntilDue = Math.ceil((dueDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
 
     return {
       ...card,
-      pending_amount: transactions.total || 0,
-      pending_count: transactions.count || 0,
-      available_limit: card.limit_amount - card.used_amount,
-      usage_percentage: card.limit_amount > 0 ? Math.round((card.used_amount / card.limit_amount) * 100) : 0
+      billingCycle: cycle,
+      dueDate: dueDateStr,
+      daysUntilDue: daysUntilDue > 0 ? daysUntilDue : 0,
+      currentCycleAmount: currentCycle.total || 0,
+      currentCycleCount: currentCycle.count || 0,
+      nextCycleAmount: nextCycle.total || 0,
+      totalPending,
+      available_limit: card.limit_amount - totalPending,
+      usage_percentage: card.limit_amount > 0 ? Math.round((totalPending / card.limit_amount) * 100) : 0
     };
   });
 

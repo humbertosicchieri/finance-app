@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useApi } from '../hooks/useApi';
 import { api } from '../api';
-import { Plus, Trash2, CreditCard, X, Check, DollarSign, Calendar } from 'lucide-react';
+import { Plus, Trash2, CreditCard, X, Check, Calendar, AlertTriangle, Clock, TrendingUp, DollarSign } from 'lucide-react';
 
 function formatCurrency(value) {
   return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value);
@@ -78,14 +78,18 @@ function CardForm({ onSubmit, initialData, onClose }) {
         <label className="label">Limite (R$) *</label>
         <input className="input" type="number" step="0.01" min="0" value={form.limit_amount} onChange={e => setForm({ ...form, limit_amount: e.target.value })} required />
       </div>
-      <div className="grid grid-cols-2 gap-4">
-        <div>
-          <label className="label">Dia Vencimento *</label>
-          <input className="input" type="number" min="1" max="31" value={form.due_day} onChange={e => setForm({ ...form, due_day: e.target.value })} required />
-        </div>
-        <div>
-          <label className="label">Dia Fechamento *</label>
-          <input className="input" type="number" min="1" max="31" value={form.closing_day} onChange={e => setForm({ ...form, closing_day: e.target.value })} required />
+      <div className="p-3 bg-dark-900/50 rounded-xl border border-dark-700/30">
+        <p className="text-xs text-dark-400 mb-3 flex items-center gap-1"><Calendar className="w-3.5 h-3.5" /> Ciclo de Faturamento</p>
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="label">Dia Fechamento *</label>
+            <input className="input" type="number" min="1" max="31" value={form.closing_day} onChange={e => setForm({ ...form, closing_day: e.target.value })} required />
+            <p className="text-xs text-dark-500 mt-1">Após este dia, vira próximo mês</p>
+          </div>
+          <div>
+            <label className="label">Dia Vencimento *</label>
+            <input className="input" type="number" min="1" max="31" value={form.due_day} onChange={e => setForm({ ...form, due_day: e.target.value })} required />
+          </div>
         </div>
       </div>
       <div>
@@ -142,7 +146,7 @@ function TransactionForm({ categories, onSubmit, onClose }) {
       </div>
       <div className="grid grid-cols-2 gap-4">
         <div>
-          <label className="label">Data *</label>
+          <label className="label">Data da Compra *</label>
           <input className="input" type="date" value={form.date} onChange={e => setForm({ ...form, date: e.target.value })} required />
         </div>
         <div>
@@ -238,7 +242,7 @@ export default function Cards() {
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-white">Cartões de Crédito</h1>
-          <p className="text-dark-400 text-sm mt-1">Gerencie seus cartões e transações</p>
+          <p className="text-dark-400 text-sm mt-1">Gerencie seus cartões e transações com controle de fatura por ciclo</p>
         </div>
         <button onClick={() => { setEditCard(null); setShowForm(true); }} className="btn-primary">
           <Plus className="w-4 h-4" /> Novo Cartão
@@ -252,8 +256,10 @@ export default function Cards() {
           </div>
         ) : cards && cards.length > 0 ? (
           cards.map(card => {
-            const usage = card.limit_amount > 0 ? (card.used_amount / card.limit_amount) * 100 : 0;
-            const available = card.limit_amount - card.used_amount;
+            const usage = card.usage_percentage || 0;
+            const available = card.available_limit || 0;
+            const isCloseToLimit = usage >= 80;
+            const isOverdue = card.daysUntilDue <= 3 && card.currentCycleAmount > 0;
             return (
               <div
                 key={card.id}
@@ -262,10 +268,10 @@ export default function Cards() {
                   selectedCard?.id === card.id
                     ? 'border-primary-500 shadow-lg shadow-primary-500/10'
                     : 'border-dark-700/50 hover:border-dark-600'
-                }`}
+                } ${isOverdue ? 'border-l-2 border-l-red-500' : ''}`}
                 style={{ background: `linear-gradient(135deg, ${card.color}20, ${card.color}05)` }}
               >
-                <div className="flex items-center justify-between mb-6">
+                <div className="flex items-center justify-between mb-4">
                   <div className="flex items-center gap-3">
                     <div className="w-12 h-8 rounded-lg flex items-center justify-center text-xs font-bold text-white" style={{ backgroundColor: card.color }}>
                       {card.brand || 'CC'}
@@ -280,34 +286,62 @@ export default function Cards() {
                   </button>
                 </div>
 
+                <div className="p-3 bg-dark-900/40 rounded-xl mb-4 border border-dark-700/30">
+                  <div className="flex items-center justify-between text-sm mb-1">
+                    <span className="text-dark-400 flex items-center gap-1.5">
+                      <Calendar className="w-3.5 h-3.5" /> Fatura atual
+                    </span>
+                    <span className="text-white font-medium">{formatCurrency(card.currentCycleAmount)}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-xs text-dark-500">
+                    <span>{card.billingCycle?.label || '---'}</span>
+                    <span className="flex items-center gap-1">
+                      <Clock className="w-3 h-3" />
+                      Vence {card.dueDate ? new Date(card.dueDate + 'T12:00:00').toLocaleDateString('pt-BR') : '---'}
+                      {card.daysUntilDue > 0 && card.currentCycleAmount > 0 && (
+                        <span className={`${card.daysUntilDue <= 3 ? 'text-red-400' : 'text-dark-400'}`}>
+                          ({card.daysUntilDue}d)
+                        </span>
+                      )}
+                    </span>
+                  </div>
+                </div>
+
                 <div className="space-y-4">
                   <div>
                     <div className="flex justify-between text-sm mb-1">
-                      <span className="text-dark-400">Utilizado</span>
+                      <span className="text-dark-400">Limite utilizado</span>
                       <span className="text-white font-medium">{formatCurrency(card.used_amount)}</span>
                     </div>
                     <div className="w-full bg-dark-700/50 rounded-full h-2.5">
-                      <div className="h-2.5 rounded-full transition-all" style={{ width: `${Math.min(usage, 100)}%`, backgroundColor: usage > 80 ? '#ef4444' : usage > 60 ? '#f59e0b' : '#22c55e' }} />
+                      <div className="h-2.5 rounded-full transition-all" style={{
+                        width: `${Math.min(usage, 100)}%`,
+                        backgroundColor: isCloseToLimit ? '#ef4444' : usage > 60 ? '#f59e0b' : '#22c55e',
+                      }} />
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-4 text-sm">
+                  {isCloseToLimit && (
+                    <div className="p-2 bg-red-500/10 border border-red-500/20 rounded-lg flex items-center gap-2 text-xs text-red-400">
+                      <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                      <span>Limite próximo do máximo!</span>
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-2 gap-3 text-sm">
                     <div className="p-3 bg-dark-900/30 rounded-xl">
                       <p className="text-dark-400 text-xs mb-1">Disponível</p>
-                      <p className="text-green-400 font-semibold">{formatCurrency(available)}</p>
+                      <p className={`font-semibold ${available > 0 ? 'text-green-400' : 'text-red-400'}`}>{formatCurrency(available)}</p>
                     </div>
                     <div className="p-3 bg-dark-900/30 rounded-xl">
-                      <p className="text-dark-400 text-xs mb-1">Limite</p>
-                      <p className="text-white font-semibold">{formatCurrency(card.limit_amount)}</p>
+                      <p className="text-dark-400 text-xs mb-1">Próximo ciclo</p>
+                      <p className="text-white font-semibold">{formatCurrency(card.nextCycleAmount || 0)}</p>
                     </div>
-                    <div className="p-3 bg-dark-900/30 rounded-xl">
-                      <p className="text-dark-400 text-xs mb-1">Vencimento</p>
-                      <p className="text-white font-semibold">Dia {card.due_day}</p>
-                    </div>
-                    <div className="p-3 bg-dark-900/30 rounded-xl">
-                      <p className="text-dark-400 text-xs mb-1">Fechamento</p>
-                      <p className="text-white font-semibold">Dia {card.closing_day}</p>
-                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between text-xs text-dark-500 pt-1">
+                    <span>Fechamento: dia {card.closing_day}</span>
+                    <span>Vencimento: dia {card.due_day}</span>
                   </div>
                 </div>
               </div>
@@ -323,14 +357,30 @@ export default function Cards() {
 
       {selectedCard && (
         <div className="card">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-lg font-semibold text-white">
-              Transações - {selectedCard.name}
-            </h3>
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-4">
+            <div>
+              <h3 className="text-lg font-semibold text-white flex items-center gap-2">
+                Transações - {selectedCard.name}
+                <span className="text-sm font-normal text-dark-400">
+                  ({selectedCard.billingCycle?.label || '---'})
+                </span>
+              </h3>
+              <div className="flex items-center gap-3 text-sm text-dark-400 mt-1">
+                <span className="flex items-center gap-1">
+                  <Calendar className="w-3.5 h-3.5" />
+                  Fechamento: dia {selectedCard.closing_day}
+                </span>
+                <span className="flex items-center gap-1">
+                  <TrendingUp className="w-3.5 h-3.5" />
+                  Vencimento: {selectedCard.dueDate ? new Date(selectedCard.dueDate + 'T12:00:00').toLocaleDateString('pt-BR') : '---'}
+                </span>
+              </div>
+            </div>
             <button onClick={() => setShowTxForm(true)} className="btn-primary text-sm">
               <Plus className="w-4 h-4" /> Nova Transação
             </button>
           </div>
+
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead>
@@ -365,11 +415,32 @@ export default function Cards() {
                   ))
                 ) : (
                   <tr>
-                    <td colSpan={6} className="py-8 text-center text-dark-500">Nenhuma transação</td>
+                    <td colSpan={6} className="py-8 text-center text-dark-500">Nenhuma transação neste ciclo</td>
                   </tr>
                 )}
               </tbody>
             </table>
+          </div>
+
+          <div className="mt-4 p-4 bg-dark-900/40 rounded-xl border border-dark-700/30">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
+              <div>
+                <p className="text-dark-400 text-xs mb-1">Total desta fatura</p>
+                <p className="text-white font-semibold">{formatCurrency(selectedCard.currentCycleAmount || 0)}</p>
+              </div>
+              <div>
+                <p className="text-dark-400 text-xs mb-1">Próximo ciclo</p>
+                <p className="text-white font-semibold">{formatCurrency(selectedCard.nextCycleAmount || 0)}</p>
+              </div>
+              <div>
+                <p className="text-dark-400 text-xs mb-1">Limite disponível</p>
+                <p className={selectedCard.available_limit > 0 ? 'text-green-400 font-semibold' : 'text-red-400 font-semibold'}>{formatCurrency(selectedCard.available_limit || 0)}</p>
+              </div>
+              <div>
+                <p className="text-dark-400 text-xs mb-1">Dias para vencimento</p>
+                <p className={`font-semibold ${selectedCard.daysUntilDue <= 3 ? 'text-red-400' : 'text-dark-200'}`}>{selectedCard.daysUntilDue || 0}d</p>
+              </div>
+            </div>
           </div>
         </div>
       )}

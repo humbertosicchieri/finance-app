@@ -1,16 +1,105 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../database');
+const { getBillingCycle } = require('../billingCycle');
 
 router.get('/', (req, res) => {
   const cards = db.prepare('SELECT * FROM credit_cards ORDER BY created_at DESC').all();
-  res.json(cards);
+  const now = new Date();
+
+  const result = cards.map(card => {
+    const cycle = getBillingCycle(card.closing_day);
+
+    const cycleTxs = db.prepare(`
+      SELECT COALESCE(SUM(amount), 0) as total, COUNT(*) as count
+      FROM card_transactions
+      WHERE card_id = ? AND date >= ? AND date <= ? AND is_paid = 0
+    `).get(card.id, cycle.cycleStart, cycle.cycleEnd);
+
+    const nextCycleTxs = db.prepare(`
+      SELECT COALESCE(SUM(amount), 0) as total
+      FROM card_transactions
+      WHERE card_id = ? AND date >= ? AND is_paid = 0
+    `).get(card.id, cycle.nextCycleStart);
+
+    const totalPending = db.prepare(`
+      SELECT COALESCE(SUM(amount), 0) as total
+      FROM card_transactions WHERE card_id = ? AND is_paid = 0
+    `).get(card.id).total;
+
+    const dueDate = new Date(cycle.cycleEnd);
+    const origDay = dueDate.getDate();
+    dueDate.setDate(card.due_day);
+    if (card.due_day < card.closing_day) {
+      dueDate.setMonth(dueDate.getMonth() + 1);
+    }
+    const dueDateStr = dueDate.toISOString().split('T')[0];
+
+    const daysUntilDue = Math.ceil((dueDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+
+    return {
+      ...card,
+      billingCycle: {
+        label: cycle.cycleLabel,
+        start: cycle.cycleStart,
+        end: cycle.cycleEnd,
+      },
+      dueDate: dueDateStr,
+      daysUntilDue: daysUntilDue > 0 ? daysUntilDue : 0,
+      currentCycleAmount: cycleTxs.total || 0,
+      currentCycleCount: cycleTxs.count || 0,
+      nextCycleAmount: nextCycleTxs.total || 0,
+      totalPending,
+      available_limit: card.limit_amount - totalPending,
+      usage_percentage: card.limit_amount > 0 ? Math.round((totalPending / card.limit_amount) * 100) : 0,
+    };
+  });
+
+  res.json(result);
 });
 
 router.get('/:id', (req, res) => {
   const card = db.prepare('SELECT * FROM credit_cards WHERE id = ?').get(req.params.id);
   if (!card) return res.status(404).json({ error: 'Cartão não encontrado' });
-  res.json(card);
+
+  const cycle = getBillingCycle(card.closing_day);
+  const now = new Date();
+
+  const cycleTxs = db.prepare(`
+    SELECT COALESCE(SUM(amount), 0) as total, COUNT(*) as count
+    FROM card_transactions
+    WHERE card_id = ? AND date >= ? AND date <= ? AND is_paid = 0
+  `).get(card.id, cycle.cycleStart, cycle.cycleEnd);
+
+  const totalPending = db.prepare(`
+    SELECT COALESCE(SUM(amount), 0) as total
+    FROM card_transactions WHERE card_id = ? AND is_paid = 0
+  `).get(card.id).total;
+
+  const dueDate = new Date(cycle.cycleEnd);
+  dueDate.setDate(card.due_day);
+  if (card.due_day < card.closing_day) {
+    dueDate.setMonth(dueDate.getMonth() + 1);
+  }
+  const dueDateStr = dueDate.toISOString().split('T')[0];
+
+  const daysUntilDue = Math.ceil((dueDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+
+  res.json({
+    ...card,
+    billingCycle: {
+      label: cycle.cycleLabel,
+      start: cycle.cycleStart,
+      end: cycle.cycleEnd,
+    },
+    dueDate: dueDateStr,
+    daysUntilDue: daysUntilDue > 0 ? daysUntilDue : 0,
+    currentCycleAmount: cycleTxs.total || 0,
+    currentCycleCount: cycleTxs.count || 0,
+    totalPending,
+    available_limit: card.limit_amount - totalPending,
+    usage_percentage: card.limit_amount > 0 ? Math.round((totalPending / card.limit_amount) * 100) : 0,
+  });
 });
 
 router.post('/', (req, res) => {
@@ -59,14 +148,78 @@ router.delete('/:id', (req, res) => {
   res.json({ success: true });
 });
 
+router.get('/:id/billing-cycle', (req, res) => {
+  const card = db.prepare('SELECT * FROM credit_cards WHERE id = ?').get(req.params.id);
+  if (!card) return res.status(404).json({ error: 'Cartão não encontrado' });
+
+  const { cycleStart, cycleEnd, cycleLabel } = getBillingCycle(card.closing_day);
+
+  const currentCycle = db.prepare(`
+    SELECT ct.*, c.name as category_name, c.color as category_color
+    FROM card_transactions ct
+    LEFT JOIN categories c ON ct.category_id = c.id
+    WHERE ct.card_id = ? AND ct.date >= ? AND ct.date <= ?
+    ORDER BY ct.date DESC
+  `).all(req.params.id, cycleStart, cycleEnd);
+
+  res.json({
+    cycle: { start: cycleStart, end: cycleEnd, label: cycleLabel },
+    transactions: currentCycle,
+  });
+});
+
+router.get('/:id/cycle-history', (req, res) => {
+  const card = db.prepare('SELECT * FROM credit_cards WHERE id = ?').get(req.params.id);
+  if (!card) return res.status(404).json({ error: 'Cartão não encontrado' });
+
+  const months = [];
+  const now = new Date();
+  for (let i = 5; i >= 0; i--) {
+    const ref = new Date(now.getFullYear(), now.getMonth() - i, card.closing_day);
+    const cycle = getBillingCycle(card.closing_day, ref);
+
+    const amount = db.prepare(`
+      SELECT COALESCE(SUM(amount), 0) as total
+      FROM card_transactions
+      WHERE card_id = ? AND date >= ? AND date <= ? AND is_paid = 0
+    `).get(req.params.id, cycle.cycleStart, cycle.cycleEnd).total;
+
+    months.push({
+      label: cycle.cycleLabel,
+      start: cycle.cycleStart,
+      end: cycle.cycleEnd,
+      amount,
+    });
+  }
+
+  res.json(months);
+});
+
 router.get('/:id/transactions', (req, res) => {
+  const card = db.prepare('SELECT * FROM credit_cards WHERE id = ?').get(req.params.id);
+  if (!card) return res.status(404).json({ error: 'Cartão não encontrado' });
+
+  const cycleParam = req.query.cycle;
+  let start, end;
+
+  if (cycleParam) {
+    const parts = cycleParam.split('_');
+    start = parts[0];
+    end = parts[1];
+  } else {
+    const cycle = getBillingCycle(card.closing_day);
+    start = cycle.cycleStart;
+    end = cycle.cycleEnd;
+  }
+
   const txs = db.prepare(`
     SELECT ct.*, c.name as category_name, c.color as category_color
     FROM card_transactions ct
     LEFT JOIN categories c ON ct.category_id = c.id
-    WHERE ct.card_id = ?
+    WHERE ct.card_id = ? AND ct.date >= ? AND ct.date <= ?
     ORDER BY ct.date DESC
-  `).all(req.params.id);
+  `).all(req.params.id, start, end);
+
   res.json(txs);
 });
 
@@ -106,7 +259,16 @@ router.post('/:id/transactions', (req, res) => {
     });
 
     insertMany();
-    const txs = db.prepare('SELECT * FROM card_transactions WHERE card_id = ? ORDER BY date DESC').all(card_id);
+
+    const cycle = getBillingCycle(card.closing_day);
+    const txs = db.prepare(`
+      SELECT ct.*, c.name as category_name, c.color as category_color
+      FROM card_transactions ct
+      LEFT JOIN categories c ON ct.category_id = c.id
+      WHERE ct.card_id = ? AND ct.date >= ? AND ct.date <= ?
+      ORDER BY ct.date DESC
+    `).all(card_id, cycle.cycleStart, cycle.cycleEnd);
+
     res.status(201).json(txs);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -119,7 +281,6 @@ router.delete('/:cardId/transactions/:txId', (req, res) => {
 
   try {
     db.prepare('DELETE FROM card_transactions WHERE id = ?').run(req.params.txId);
-    db.prepare('UPDATE credit_cards SET used_amount = MAX(0, used_amount - ?) WHERE id = ?').run(tx.amount, req.params.cardId);
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
