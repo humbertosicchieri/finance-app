@@ -131,8 +131,16 @@ const insertCats = db.transaction((cats) => {
 
 insertCats(defaultCategories);
 
-const existingAdmin = db.prepare('SELECT id FROM users WHERE username = ?').get(ADMIN_USERNAME);
-if (!existingAdmin) {
+const existingAdmin = db.prepare('SELECT id, password FROM users WHERE username = ?').get(ADMIN_USERNAME);
+if (existingAdmin) {
+  const isBcrypt = existingAdmin.password.startsWith('$2b$') || existingAdmin.password.startsWith('$2a$') || existingAdmin.password.startsWith('$2y$');
+  if (!isBcrypt) {
+    const hashedPassword = bcrypt.hashSync(ADMIN_PASSWORD, 12);
+    db.prepare('UPDATE users SET password = ?, name = ?, role = ? WHERE id = ?')
+      .run(hashedPassword, 'Administrador', 'admin', existingAdmin.id);
+    console.log(`Admin user '${ADMIN_USERNAME}' password migrated to bcrypt`);
+  }
+} else {
   const hashedPassword = bcrypt.hashSync(ADMIN_PASSWORD, 12);
   db.prepare(
     'INSERT OR IGNORE INTO users (username, password, name, role) VALUES (?, ?, ?, ?)'
