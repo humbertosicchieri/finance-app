@@ -105,7 +105,7 @@ router.get('/:id', (req, res) => {
 
 router.post('/', (req, res) => {
   const { name, last_digits, limit_amount, due_day, closing_day, brand, color } = req.body;
-  if (!name || typeof name !== 'string') return res.status(400).json({ error: 'Nome é obrigatório' });
+  if (!name || typeof name !== 'string' || name.length > 100) return res.status(400).json({ error: 'Nome inválido (max 100 caracteres)' });
   if (!last_digits || !/^\d{1,4}$/.test(String(last_digits))) {
     return res.status(400).json({ error: 'Últimos dígitos inválidos (máx 4 dígitos)' });
   }
@@ -261,8 +261,8 @@ router.post('/:id/transactions', (req, res) => {
   if (!/^\d+$/.test(card_id)) return res.status(400).json({ error: 'ID inválido' });
 
   const { description, amount, date, installments, category_id, notes } = req.body;
-  if (!description || typeof description !== 'string' || description.trim().length === 0) {
-    return res.status(400).json({ error: 'Descrição é obrigatória' });
+  if (!description || typeof description !== 'string' || description.trim().length === 0 || description.length > 255) {
+    return res.status(400).json({ error: 'Descrição inválida (max 255 caracteres)' });
   }
   const amt = parseFloat(amount);
   if (isNaN(amt) || amt <= 0) return res.status(400).json({ error: 'Valor deve ser um número positivo' });
@@ -336,6 +336,7 @@ router.delete('/:cardId/transactions/:txId', (req, res) => {
 
   try {
     db.prepare('DELETE FROM card_transactions WHERE id = ?').run(txId);
+    db.prepare('UPDATE credit_cards SET used_amount = MAX(0, used_amount - ?) WHERE id = ?').run(tx.amount, cardId);
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: 'Erro ao excluir transação' });

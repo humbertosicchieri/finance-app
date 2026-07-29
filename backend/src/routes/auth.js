@@ -8,31 +8,59 @@ const { validatePasswordStrength } = require('../captcha');
 const router = express.Router();
 
 const TOKEN_EXPIRY = '24h';
-
-const loginAttempts = new Map();
+const COOKIE_MAX_AGE = 24 * 60 * 60 * 1000;
 
 function isLoginBlocked(ip) {
-  const record = loginAttempts.get(ip);
-  if (!record) return false;
-  if (Date.now() - record.windowStart > 15 * 60 * 1000) {
-    loginAttempts.delete(ip);
+  const row = db.prepare('SELECT attempts, window_start FROM login_attempts WHERE ip = ?').get(ip);
+  if (!row) return false;
+  if (Date.now() - row.window_start > 15 * 60 * 1000) {
+    db.prepare('DELETE FROM login_attempts WHERE ip = ?').run(ip);
     return false;
   }
-  return record.attempts >= 5;
+  return row.attempts >= 5;
 }
 
 function recordLoginAttempt(ip, success) {
   if (success) {
-    loginAttempts.delete(ip);
+    db.prepare('DELETE FROM login_attempts WHERE ip = ?').run(ip);
     return;
   }
-  const record = loginAttempts.get(ip) || { attempts: 0, windowStart: Date.now() };
-  record.attempts++;
-  if (Date.now() - record.windowStart > 15 * 60 * 1000) {
-    record.attempts = 1;
-    record.windowStart = Date.now();
+  const row = db.prepare('SELECT attempts, window_start FROM login_attempts WHERE ip = ?').get(ip);
+  if (!row || Date.now() - row.window_start > 15 * 60 * 1000) {
+    db.prepare('INSERT OR REPLACE INTO login_attempts (ip, attempts, window_start) VALUES (?, 1, ?)').run(ip, Date.now());
+  } else {
+    db.prepare('UPDATE login_attempts SET attempts = attempts + 1 WHERE ip = ?').run(ip);
   }
-  loginAttempts.set(ip, record);
+}
+
+function setTokenCookie(res, token) {
+  res.cookie('token', token, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'strict',
+    maxAge: COOKIE_MAX_AGE,
+    path: '/',
+  });
+}
+
+function clearTokenCookie(res) {
+  res.clearCookie('token', { path: '/' });
+}
+
+function isTokenBlacklisted(jti) {
+  return !!db.prepare('SELECT 1 FROM token_blacklist WHERE jti = ?').get(jti);
+}
+
+function audit(userId, action, details) {
+  try {
+    db.prepare('INSERT INTO audit_log (user_id, action, details) VALUES (?, ?, ?)')
+      .run(userId, action, JSON.stringify(details || {}));
+  } catch (e) { /* silent */ }
+}
+
+function generateJti() {
+  const crypto = require('crypto');
+  return crypto.randomBytes(16).toString('hex');
 }
 
 router.post('/login', (req, res) => {
@@ -66,11 +94,16 @@ router.post('/login', (req, res) => {
 
   recordLoginAttempt(ip, true);
 
+  const jti = generateJti();
   const token = jwt.sign(
-    { id: user.id, username: user.username, name: user.name, role: user.role },
+    { id: user.id, username: user.username, name: user.name, role: user.role, jti },
     JWT_SECRET,
     { expiresIn: TOKEN_EXPIRY }
   );
+
+  setTokenCookie(res, token);
+
+  audit(user.id, 'login', { ip });
 
   res.json({
     token,
@@ -78,20 +111,57 @@ router.post('/login', (req, res) => {
   });
 });
 
+router.post('/logout', (req, res) => {
+  const authHeader = req.headers.authorization;
+  let token = null;
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    token = authHeader.split(' ')[1];
+  } else if (req.cookies && req.cookies.token) {
+    token = req.cookies.token;
+  }
+
+  if (token) {
+    try {
+      const decoded = jwt.verify(token, JWT_SECRET, { ignoreExpiration: true });
+      db.prepare('INSERT OR IGNORE INTO token_blacklist (jti, expires_at) VALUES (?, ?)')
+        .run(decoded.jti, new Date(Date.now() + COOKIE_MAX_AGE).toISOString());
+      audit(decoded.id, 'logout', { jti: decoded.jti });
+    } catch (e) { /* token already invalid, ignore */ }
+  }
+
+  clearTokenCookie(res);
+  res.json({ success: true });
+});
+
 router.get('/verify', (req, res) => {
   const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+  let token = null;
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    token = authHeader.split(' ')[1];
+  } else if (req.cookies && req.cookies.token) {
+    token = req.cookies.token;
+  }
+
+  if (!token) {
     return res.status(401).json({ error: 'Token não fornecido' });
   }
 
-  const token = authHeader.split(' ')[1];
   try {
     const decoded = jwt.verify(token, JWT_SECRET);
+    if (isTokenBlacklisted(decoded.jti)) {
+      clearTokenCookie(res);
+      return res.status(401).json({ error: 'Token invalidado' });
+    }
+
     const user = db.prepare('SELECT id, username, name, role, is_active FROM users WHERE id = ?').get(decoded.id);
-    if (!user || !user.is_active) return res.status(401).json({ error: 'Usuário não encontrado ou desativado' });
+    if (!user || !user.is_active) {
+      clearTokenCookie(res);
+      return res.status(401).json({ error: 'Usuário não encontrado ou desativado' });
+    }
     res.json({ valid: true, user });
   } catch (err) {
-    res.status(401).json({ error: 'Token inválido ou expirado' });
+    clearTokenCookie(res);
+    return res.status(401).json({ error: 'Token inválido ou expirado' });
   }
 });
 
@@ -115,6 +185,9 @@ router.post('/users', authMiddleware, (req, res) => {
   if (typeof name !== 'string' || name.length < 2 || name.length > 100) {
     return res.status(400).json({ error: 'Nome deve ter entre 2 e 100 caracteres' });
   }
+  if (role && !['admin', 'user'].includes(role)) {
+    return res.status(400).json({ error: 'Role inválida' });
+  }
 
   const passwordErrors = validatePasswordStrength(password);
   if (passwordErrors.length > 0) {
@@ -130,6 +203,7 @@ router.post('/users', authMiddleware, (req, res) => {
       'INSERT INTO users (username, password, name, role) VALUES (?, ?, ?, ?)'
     ).run(username.trim(), hashedPassword, name.trim(), role || 'user');
     const user = db.prepare('SELECT id, username, name, role, is_active, created_at FROM users WHERE id = ?').get(result.lastInsertRowid);
+    audit(req.user.id, 'create_user', { target_id: user.id, target_username: user.username });
     res.status(201).json(user);
   } catch (err) {
     res.status(500).json({ error: 'Erro ao criar usuário' });
@@ -143,6 +217,9 @@ router.put('/users/:id', authMiddleware, (req, res) => {
   if (!/^\d+$/.test(id)) return res.status(400).json({ error: 'ID inválido' });
 
   const { name, role, is_active } = req.body;
+  if (role && !['admin', 'user'].includes(role)) {
+    return res.status(400).json({ error: 'Role inválida' });
+  }
 
   try {
     db.prepare(
@@ -150,6 +227,7 @@ router.put('/users/:id', authMiddleware, (req, res) => {
     ).run(name ? name.trim() : null, role || null, is_active !== undefined ? (is_active ? 1 : 0) : null, id);
     const user = db.prepare('SELECT id, username, name, role, is_active, created_at FROM users WHERE id = ?').get(id);
     if (!user) return res.status(404).json({ error: 'Usuário não encontrado' });
+    audit(req.user.id, 'update_user', { target_id: user.id, changes: { name, role, is_active } });
     res.json(user);
   } catch (err) {
     res.status(500).json({ error: 'Erro ao atualizar usuário' });
@@ -190,6 +268,7 @@ router.put('/users/:id/password', authMiddleware, (req, res) => {
   try {
     const hashedNew = bcrypt.hashSync(newPassword, 12);
     db.prepare('UPDATE users SET password = ? WHERE id = ?').run(hashedNew, id);
+    audit(req.user.id, 'change_password', { target_id: id });
     res.json({ success: true, message: 'Senha atualizada com sucesso' });
   } catch (err) {
     res.status(500).json({ error: 'Erro ao alterar senha' });
@@ -208,6 +287,7 @@ router.delete('/users/:id', authMiddleware, (req, res) => {
 
   const result = db.prepare('DELETE FROM users WHERE id = ?').run(id);
   if (result.changes === 0) return res.status(404).json({ error: 'Usuário não encontrado' });
+  audit(req.user.id, 'delete_user', { target_id: id });
   res.json({ success: true });
 });
 

@@ -142,8 +142,8 @@ export default function App() {
     setUser(userData);
   };
 
-  const handleLogout = () => {
-    auth.logout();
+  const handleLogout = async () => {
+    await auth.logout();
     setUser(null);
   };
 

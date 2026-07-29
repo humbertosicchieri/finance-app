@@ -101,6 +101,29 @@ db.exec(`
     key TEXT PRIMARY KEY,
     value TEXT
   );
+
+  CREATE TABLE IF NOT EXISTS login_attempts (
+    ip TEXT PRIMARY KEY,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    window_start INTEGER NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS token_blacklist (
+    jti TEXT PRIMARY KEY,
+    expires_at TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS audit_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER,
+    action TEXT NOT NULL,
+    details TEXT DEFAULT '{}',
+    created_at TEXT DEFAULT (datetime('now')),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_audit_log_created_at ON audit_log(created_at);
+  CREATE INDEX IF NOT EXISTS idx_token_blacklist_expires ON token_blacklist(expires_at);
 `);
 
 const defaultCategories = [
@@ -130,6 +153,14 @@ const insertCats = db.transaction((cats) => {
 });
 
 insertCats(defaultCategories);
+
+// Cleanup expired data every hour
+const cleanup = db.transaction(() => {
+  db.prepare("DELETE FROM token_blacklist WHERE expires_at < datetime('now')").run();
+  db.prepare("DELETE FROM login_attempts WHERE window_start < ?").run(Date.now() - 24 * 60 * 60 * 1000);
+});
+cleanup();
+setInterval(cleanup, 60 * 60 * 1000);
 
 const existingAdmin = db.prepare('SELECT id, password FROM users WHERE username = ?').get(ADMIN_USERNAME);
 if (existingAdmin) {

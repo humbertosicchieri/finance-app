@@ -43,8 +43,8 @@ router.post('/', (req, res) => {
     recurrence_interval, notes
   } = req.body;
 
-  if (!description || typeof description !== 'string' || description.trim().length === 0) {
-    return res.status(400).json({ error: 'Descrição é obrigatória' });
+  if (!description || typeof description !== 'string' || description.trim().length === 0 || description.length > 255) {
+    return res.status(400).json({ error: 'Descrição inválida (max 255 caracteres)' });
   }
   const amt = parseFloat(amount);
   if (isNaN(amt) || amt <= 0) return res.status(400).json({ error: 'Valor deve ser um número positivo' });
@@ -100,7 +100,7 @@ router.put('/:id', (req, res) => {
     recurrence_remaining, recurrence_interval, is_paid, notes
   } = req.body;
 
-  if (description !== undefined && (typeof description !== 'string' || description.trim().length === 0)) {
+  if (description !== undefined && (typeof description !== 'string' || description.trim().length === 0 || description.length > 255)) {
     return res.status(400).json({ error: 'Descrição inválida' });
   }
   if (amount !== undefined && (isNaN(parseFloat(amount)) || parseFloat(amount) <= 0)) {
