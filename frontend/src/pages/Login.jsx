@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { ArrowDownUp, Eye, EyeOff, Lock, User, TrendingUp, Wallet, CreditCard, RefreshCw, ShieldCheck } from 'lucide-react';
+import { useState } from 'react';
+import { ArrowDownUp, Eye, EyeOff, Lock, User, TrendingUp, Wallet, CreditCard, ShieldCheck } from 'lucide-react';
 import { auth } from '../api';
 
 function PasswordStrength({ password }) {
@@ -51,24 +51,8 @@ export default function Login({ onLogin }) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [captcha, setCaptcha] = useState(null);
-  const [captchaAnswer, setCaptchaAnswer] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-
-  useEffect(() => {
-    loadCaptcha();
-  }, []);
-
-  const loadCaptcha = async () => {
-    try {
-      const data = await auth.getCaptcha();
-      setCaptcha(data);
-      setCaptchaAnswer('');
-    } catch (err) {
-      console.error('Erro ao carregar CAPTCHA:', err);
-    }
-  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -76,11 +60,10 @@ export default function Login({ onLogin }) {
     setLoading(true);
 
     try {
-      const data = await auth.login(username, password, captcha.id, captchaAnswer);
+      const data = await auth.login(username, password);
       onLogin(data.user);
     } catch (err) {
       setError(err.message || 'Credenciais inválidas');
-      loadCaptcha();
     } finally {
       setLoading(false);
     }
@@ -225,38 +208,9 @@ export default function Login({ onLogin }) {
                 </div>
               </div>
 
-              {captcha && (
-                <div>
-                  <label className="label">Verificação de Segurança</label>
-                  <div className="flex items-center gap-3">
-                    <div className="flex-1 bg-dark-900/80 border border-dark-600 rounded-xl px-4 py-3 flex items-center justify-center">
-                      <span className="text-lg font-bold text-white tracking-wider font-mono">
-                        {captcha.question}
-                      </span>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={loadCaptcha}
-                      className="p-3 bg-dark-700 hover:bg-dark-600 rounded-xl transition-colors"
-                      title="Gerar novo CAPTCHA"
-                    >
-                      <RefreshCw className="w-5 h-5 text-dark-400" />
-                    </button>
-                  </div>
-                  <input
-                    className="input mt-2"
-                    type="number"
-                    placeholder="Digite o resultado"
-                    value={captchaAnswer}
-                    onChange={e => setCaptchaAnswer(e.target.value)}
-                    required
-                  />
-                </div>
-              )}
-
               <button
                 type="submit"
-                disabled={loading || !captcha}
+                disabled={loading}
                 className="btn-primary w-full justify-center py-3 text-base disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {loading ? (

@@ -4,7 +4,7 @@ const bcrypt = require('bcrypt');
 const db = require('../database');
 const authMiddleware = require('../middleware');
 const { JWT_SECRET } = require('../config');
-const { generateCaptcha, verifyCaptcha, validatePasswordStrength } = require('../captcha');
+const { validatePasswordStrength } = require('../captcha');
 const router = express.Router();
 
 const TOKEN_EXPIRY = '24h';
@@ -35,24 +35,6 @@ function recordLoginAttempt(ip, success) {
   loginAttempts.set(ip, record);
 }
 
-const CAPTCHA_RATE = new Map();
-function isCaptchaFlooded(ip) {
-  const now = Date.now();
-  const record = CAPTCHA_RATE.get(ip) || { count: 0, start: now };
-  if (now - record.start > 60000) { record.count = 0; record.start = now; }
-  record.count++;
-  CAPTCHA_RATE.set(ip, record);
-  return record.count > 10;
-}
-
-router.get('/captcha', (req, res) => {
-  if (isCaptchaFlooded(req.ip)) {
-    return res.status(429).json({ error: 'Muitas solicitações de CAPTCHA. Aguarde.' });
-  }
-  const captcha = generateCaptcha();
-  res.json(captcha);
-});
-
 router.post('/login', (req, res) => {
   const ip = req.ip;
 
@@ -60,22 +42,13 @@ router.post('/login', (req, res) => {
     return res.status(429).json({ error: 'Muitas tentativas. Tente novamente em 15 minutos.' });
   }
 
-  const { username, password, captchaId, captchaAnswer } = req.body;
+  const { username, password } = req.body;
 
   if (!username || typeof username !== 'string') {
     return res.status(400).json({ error: 'Usuário é obrigatório' });
   }
   if (!password || typeof password !== 'string') {
     return res.status(400).json({ error: 'Senha é obrigatória' });
-  }
-  if (!captchaId || captchaAnswer === undefined || captchaAnswer === null) {
-    return res.status(400).json({ error: 'CAPTCHA é obrigatório' });
-  }
-
-  const captchaResult = verifyCaptcha(captchaId, captchaAnswer);
-  if (!captchaResult.valid) {
-    recordLoginAttempt(ip, false);
-    return res.status(401).json({ error: captchaResult.error });
   }
 
   const user = db.prepare('SELECT * FROM users WHERE username = ? AND is_active = 1').get(username.trim());
