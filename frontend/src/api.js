@@ -1,10 +1,16 @@
 const API_BASE = '/api';
 
+let tokenMemory = null;
+
 async function request(url, options = {}) {
   const headers = {
     'Content-Type': 'application/json',
     ...options.headers,
   };
+
+  if (tokenMemory) {
+    headers['Authorization'] = `Bearer ${tokenMemory}`;
+  }
 
   const res = await fetch(`${API_BASE}${url}`, {
     ...options,
@@ -13,6 +19,7 @@ async function request(url, options = {}) {
   });
 
   if (res.status === 401) {
+    tokenMemory = null;
     window.location.reload();
     throw new Error('Sessão expirada');
   }
@@ -37,9 +44,11 @@ export const auth = {
       throw new Error(err.error || 'Erro na requisição');
     }
     const data = await res.json();
+    tokenMemory = data.token;
     return data;
   },
   logout: async () => {
+    tokenMemory = null;
     await fetch(`${API_BASE}/auth/logout`, {
       method: 'POST',
       credentials: 'include',
@@ -47,7 +56,12 @@ export const auth = {
   },
   verify: async () => {
     try {
+      const headers = {};
+      if (tokenMemory) {
+        headers['Authorization'] = `Bearer ${tokenMemory}`;
+      }
       const res = await fetch(`${API_BASE}/auth/verify`, {
+        headers,
         credentials: 'include',
       });
       if (!res.ok) return null;
