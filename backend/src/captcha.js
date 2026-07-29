@@ -1,9 +1,15 @@
 const crypto = require('crypto');
 
 const captchas = new Map();
+const MAX_CAPTCHAS = 1000;
 
 function generateCaptcha() {
-  const id = crypto.randomBytes(16).toString('hex');
+  if (captchas.size >= MAX_CAPTCHAS) {
+    const oldest = [...captchas.keys()].slice(0, 100);
+    for (const key of oldest) captchas.delete(key);
+  }
+
+  const id = crypto.randomBytes(24).toString('hex');
 
   const operations = ['+', '-', '×'];
   const op = operations[Math.floor(Math.random() * operations.length)];
@@ -21,8 +27,8 @@ function generateCaptcha() {
       answer = a - b;
       break;
     case '×':
-      a = Math.floor(Math.random() * 12) + 1;
-      b = Math.floor(Math.random() * 12) + 1;
+      a = Math.floor(Math.random() * 10) + 2;
+      b = Math.floor(Math.random() * 10) + 2;
       answer = a * b;
       break;
   }
@@ -55,12 +61,12 @@ function verifyCaptcha(id, userAnswer) {
     return { valid: false, error: 'CAPTCHA expirado' };
   }
 
-  captcha.used = true;
-
-  if (parseInt(userAnswer) !== captcha.answer) {
+  const numAnswer = parseInt(userAnswer);
+  if (isNaN(numAnswer) || numAnswer !== captcha.answer) {
     return { valid: false, error: 'Resposta incorreta' };
   }
 
+  captcha.used = true;
   return { valid: true };
 }
 
@@ -70,7 +76,7 @@ function validatePasswordStrength(password) {
   if (!/[A-Z]/.test(password)) errors.push('Pelo menos 1 letra maiúscula');
   if (!/[a-z]/.test(password)) errors.push('Pelo menos 1 letra minúscula');
   if (!/[0-9]/.test(password)) errors.push('Pelo menos 1 número');
-  if (!/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password)) errors.push('Pelo menos 1 caractere especial (!@#$%...)');
+  if (!/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password)) errors.push('Pelo menos 1 caractere especial');
   return errors;
 }
 

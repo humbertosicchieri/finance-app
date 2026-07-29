@@ -1,5 +1,5 @@
 FROM node:20-alpine AS backend-deps
-RUN apk add --no-cache python3 make g++
+RUN apk add --no-cache python3 make g++ linux-headers
 WORKDIR /app/backend
 COPY backend/package*.json ./
 RUN npm install --omit=dev
@@ -26,5 +26,8 @@ ENV DB_PATH=/app/data/finance.db
 EXPOSE 3000
 
 RUN mkdir -p /app/data
+
+HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
+  CMD wget --spider -q http://localhost:3000/api/health || exit 1
 
 CMD ["node", "backend/src/server.js"]

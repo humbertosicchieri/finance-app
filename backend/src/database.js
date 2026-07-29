@@ -1,15 +1,12 @@
 const Database = require('better-sqlite3');
-const crypto = require('crypto');
+const bcrypt = require('bcrypt');
 const path = require('path');
-
-function hashPassword(password) {
-  return crypto.createHash('sha256').update(password).digest('hex');
-}
+const fs = require('fs');
+const { ADMIN_USERNAME, ADMIN_PASSWORD } = require('./config');
 
 const dbPath = process.env.DB_PATH || path.join(__dirname, '..', 'data', 'finance.db');
 
 const dir = path.dirname(dbPath);
-const fs = require('fs');
 if (!fs.existsSync(dir)) {
   fs.mkdirSync(dir, { recursive: true });
 }
@@ -46,7 +43,7 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS expenses (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     description TEXT NOT NULL,
-    amount REAL NOT NULL,
+    amount REAL NOT NULL CHECK(amount > 0),
     date TEXT NOT NULL,
     category_id INTEGER,
     card_id INTEGER,
@@ -65,7 +62,7 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS incomes (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     description TEXT NOT NULL,
-    amount REAL NOT NULL,
+    amount REAL NOT NULL CHECK(amount > 0),
     date TEXT NOT NULL,
     source TEXT DEFAULT '',
     is_recurring INTEGER DEFAULT 0,
@@ -78,7 +75,7 @@ db.exec(`
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     card_id INTEGER NOT NULL,
     description TEXT NOT NULL,
-    amount REAL NOT NULL,
+    amount REAL NOT NULL CHECK(amount > 0),
     date TEXT NOT NULL,
     installments INTEGER DEFAULT 1,
     installment_current INTEGER DEFAULT 1,
@@ -126,24 +123,21 @@ const insertCat = db.prepare(
   'INSERT OR IGNORE INTO categories (name, color, icon, type) VALUES (?, ?, ?, ?)'
 );
 
-const insertMany = db.transaction((cats) => {
+const insertCats = db.transaction((cats) => {
   for (const cat of cats) {
     insertCat.run(cat.name, cat.color, cat.icon, cat.type);
   }
 });
 
-insertMany(defaultCategories);
+insertCats(defaultCategories);
 
-const defaultUsers = [
-  { username: 'humbertoadm', password: hashPassword('031106hC!'), name: 'Humberto Admin', role: 'admin' }
-];
-
-const insertUser = db.prepare(
-  'INSERT OR IGNORE INTO users (username, password, name, role) VALUES (?, ?, ?, ?)'
-);
-
-for (const u of defaultUsers) {
-  insertUser.run(u.username, u.password, u.name, u.role);
+const existingAdmin = db.prepare('SELECT id FROM users WHERE username = ?').get(ADMIN_USERNAME);
+if (!existingAdmin) {
+  const hashedPassword = bcrypt.hashSync(ADMIN_PASSWORD, 12);
+  db.prepare(
+    'INSERT OR IGNORE INTO users (username, password, name, role) VALUES (?, ?, ?, ?)'
+  ).run(ADMIN_USERNAME, hashedPassword, 'Administrador', 'admin');
+  console.log(`Admin user '${ADMIN_USERNAME}' created`);
 }
 
 module.exports = db;

@@ -28,7 +28,6 @@ router.get('/', (req, res) => {
     `).get(card.id).total;
 
     const dueDate = new Date(cycle.cycleEnd);
-    const origDay = dueDate.getDate();
     dueDate.setDate(card.due_day);
     if (card.due_day < card.closing_day) {
       dueDate.setMonth(dueDate.getMonth() + 1);
@@ -59,7 +58,9 @@ router.get('/', (req, res) => {
 });
 
 router.get('/:id', (req, res) => {
-  const card = db.prepare('SELECT * FROM credit_cards WHERE id = ?').get(req.params.id);
+  const { id } = req.params;
+  if (!/^\d+$/.test(id)) return res.status(400).json({ error: 'ID inválido' });
+  const card = db.prepare('SELECT * FROM credit_cards WHERE id = ?').get(id);
   if (!card) return res.status(404).json({ error: 'Cartão não encontrado' });
 
   const cycle = getBillingCycle(card.closing_day);
@@ -104,23 +105,46 @@ router.get('/:id', (req, res) => {
 
 router.post('/', (req, res) => {
   const { name, last_digits, limit_amount, due_day, closing_day, brand, color } = req.body;
-  if (!name || !last_digits || !limit_amount || !due_day || !closing_day) {
-    return res.status(400).json({ error: 'Campos obrigatórios: name, last_digits, limit_amount, due_day, closing_day' });
+  if (!name || typeof name !== 'string') return res.status(400).json({ error: 'Nome é obrigatório' });
+  if (!last_digits || !/^\d{1,4}$/.test(String(last_digits))) {
+    return res.status(400).json({ error: 'Últimos dígitos inválidos (máx 4 dígitos)' });
   }
+  const limit = parseFloat(limit_amount);
+  if (isNaN(limit) || limit <= 0) return res.status(400).json({ error: 'Limite deve ser um número positivo' });
+  const dd = parseInt(due_day);
+  const cd = parseInt(closing_day);
+  if (isNaN(dd) || dd < 1 || dd > 31) return res.status(400).json({ error: 'Dia de vencimento inválido (1-31)' });
+  if (isNaN(cd) || cd < 1 || cd > 31) return res.status(400).json({ error: 'Dia de fechamento inválido (1-31)' });
+
   try {
     const result = db.prepare(
       'INSERT INTO credit_cards (name, last_digits, limit_amount, due_day, closing_day, brand, color) VALUES (?, ?, ?, ?, ?, ?, ?)'
-    ).run(name, last_digits, limit_amount, due_day, closing_day, brand || '', color || '#6366f1');
+    ).run(name.trim(), String(last_digits), limit, dd, cd, brand || '', color || '#6366f1');
     const card = db.prepare('SELECT * FROM credit_cards WHERE id = ?').get(result.lastInsertRowid);
     res.status(201).json(card);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Erro ao criar cartão' });
   }
 });
 
 router.put('/:id', (req, res) => {
-  const { name, last_digits, limit_amount, due_day, closing_day, brand, color, is_active } = req.body;
   const { id } = req.params;
+  if (!/^\d+$/.test(id)) return res.status(400).json({ error: 'ID inválido' });
+  const { name, last_digits, limit_amount, due_day, closing_day, brand, color, is_active } = req.body;
+
+  if (last_digits && !/^\d{1,4}$/.test(String(last_digits))) {
+    return res.status(400).json({ error: 'Últimos dígitos inválidos' });
+  }
+  if (limit_amount !== undefined && (isNaN(parseFloat(limit_amount)) || parseFloat(limit_amount) <= 0)) {
+    return res.status(400).json({ error: 'Limite deve ser um número positivo' });
+  }
+  if (due_day !== undefined && (isNaN(parseInt(due_day)) || parseInt(due_day) < 1 || parseInt(due_day) > 31)) {
+    return res.status(400).json({ error: 'Dia de vencimento inválido' });
+  }
+  if (closing_day !== undefined && (isNaN(parseInt(closing_day)) || parseInt(closing_day) < 1 || parseInt(closing_day) > 31)) {
+    return res.status(400).json({ error: 'Dia de fechamento inválido' });
+  }
+
   try {
     db.prepare(`
       UPDATE credit_cards SET
@@ -133,23 +157,27 @@ router.put('/:id', (req, res) => {
         color = COALESCE(?, color),
         is_active = COALESCE(?, is_active)
       WHERE id = ?
-    `).run(name, last_digits, limit_amount, due_day, closing_day, brand, color, is_active, id);
+    `).run(name ? name.trim() : null, last_digits, limit_amount, due_day, closing_day, brand, color, is_active, id);
     const card = db.prepare('SELECT * FROM credit_cards WHERE id = ?').get(id);
     if (!card) return res.status(404).json({ error: 'Cartão não encontrado' });
     res.json(card);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Erro ao atualizar cartão' });
   }
 });
 
 router.delete('/:id', (req, res) => {
-  const result = db.prepare('DELETE FROM credit_cards WHERE id = ?').run(req.params.id);
+  const { id } = req.params;
+  if (!/^\d+$/.test(id)) return res.status(400).json({ error: 'ID inválido' });
+  const result = db.prepare('DELETE FROM credit_cards WHERE id = ?').run(id);
   if (result.changes === 0) return res.status(404).json({ error: 'Cartão não encontrado' });
   res.json({ success: true });
 });
 
 router.get('/:id/billing-cycle', (req, res) => {
-  const card = db.prepare('SELECT * FROM credit_cards WHERE id = ?').get(req.params.id);
+  const { id } = req.params;
+  if (!/^\d+$/.test(id)) return res.status(400).json({ error: 'ID inválido' });
+  const card = db.prepare('SELECT * FROM credit_cards WHERE id = ?').get(id);
   if (!card) return res.status(404).json({ error: 'Cartão não encontrado' });
 
   const { cycleStart, cycleEnd, cycleLabel } = getBillingCycle(card.closing_day);
@@ -160,7 +188,7 @@ router.get('/:id/billing-cycle', (req, res) => {
     LEFT JOIN categories c ON ct.category_id = c.id
     WHERE ct.card_id = ? AND ct.date >= ? AND ct.date <= ?
     ORDER BY ct.date DESC
-  `).all(req.params.id, cycleStart, cycleEnd);
+  `).all(id, cycleStart, cycleEnd);
 
   res.json({
     cycle: { start: cycleStart, end: cycleEnd, label: cycleLabel },
@@ -169,20 +197,22 @@ router.get('/:id/billing-cycle', (req, res) => {
 });
 
 router.get('/:id/cycle-history', (req, res) => {
-  const card = db.prepare('SELECT * FROM credit_cards WHERE id = ?').get(req.params.id);
+  const { id } = req.params;
+  if (!/^\d+$/.test(id)) return res.status(400).json({ error: 'ID inválido' });
+  const card = db.prepare('SELECT * FROM credit_cards WHERE id = ?').get(id);
   if (!card) return res.status(404).json({ error: 'Cartão não encontrado' });
 
   const months = [];
   const now = new Date();
   for (let i = 5; i >= 0; i--) {
-    const ref = new Date(now.getFullYear(), now.getMonth() - i, card.closing_day);
+    const ref = new Date(now.getFullYear(), now.getMonth() - i, Math.min(card.closing_day, 28));
     const cycle = getBillingCycle(card.closing_day, ref);
 
     const amount = db.prepare(`
       SELECT COALESCE(SUM(amount), 0) as total
       FROM card_transactions
       WHERE card_id = ? AND date >= ? AND date <= ? AND is_paid = 0
-    `).get(req.params.id, cycle.cycleStart, cycle.cycleEnd).total;
+    `).get(id, cycle.cycleStart, cycle.cycleEnd).total;
 
     months.push({
       label: cycle.cycleLabel,
@@ -196,7 +226,9 @@ router.get('/:id/cycle-history', (req, res) => {
 });
 
 router.get('/:id/transactions', (req, res) => {
-  const card = db.prepare('SELECT * FROM credit_cards WHERE id = ?').get(req.params.id);
+  const { id } = req.params;
+  if (!/^\d+$/.test(id)) return res.status(400).json({ error: 'ID inválido' });
+  const card = db.prepare('SELECT * FROM credit_cards WHERE id = ?').get(id);
   if (!card) return res.status(404).json({ error: 'Cartão não encontrado' });
 
   const cycleParam = req.query.cycle;
@@ -206,6 +238,7 @@ router.get('/:id/transactions', (req, res) => {
     const parts = cycleParam.split('_');
     start = parts[0];
     end = parts[1];
+    if (!start || !end) return res.status(400).json({ error: 'Ciclo inválido' });
   } else {
     const cycle = getBillingCycle(card.closing_day);
     start = cycle.cycleStart;
@@ -218,22 +251,41 @@ router.get('/:id/transactions', (req, res) => {
     LEFT JOIN categories c ON ct.category_id = c.id
     WHERE ct.card_id = ? AND ct.date >= ? AND ct.date <= ?
     ORDER BY ct.date DESC
-  `).all(req.params.id, start, end);
+  `).all(id, start, end);
 
   res.json(txs);
 });
 
 router.post('/:id/transactions', (req, res) => {
-  const { description, amount, date, installments, category_id, notes } = req.body;
   const card_id = req.params.id;
-  if (!description || !amount || !date) {
-    return res.status(400).json({ error: 'Campos obrigatórios: description, amount, date' });
+  if (!/^\d+$/.test(card_id)) return res.status(400).json({ error: 'ID inválido' });
+
+  const { description, amount, date, installments, category_id, notes } = req.body;
+  if (!description || typeof description !== 'string' || description.trim().length === 0) {
+    return res.status(400).json({ error: 'Descrição é obrigatória' });
   }
+  const amt = parseFloat(amount);
+  if (isNaN(amt) || amt <= 0) return res.status(400).json({ error: 'Valor deve ser um número positivo' });
+  if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ error: 'Data inválida (AAAA-MM-DD)' });
+  const numInstallments = parseInt(installments) || 1;
+  if (numInstallments < 1 || numInstallments > 48) return res.status(400).json({ error: 'Parcelas deve ser entre 1 e 48' });
+
   const card = db.prepare('SELECT * FROM credit_cards WHERE id = ?').get(card_id);
   if (!card) return res.status(404).json({ error: 'Cartão não encontrado' });
 
-  const installmentCount = installments || 1;
-  const installmentAmount = amount / installmentCount;
+  const totalPending = db.prepare(`
+    SELECT COALESCE(SUM(amount), 0) as total FROM card_transactions WHERE card_id = ? AND is_paid = 0
+  `).get(card_id).total;
+
+  if (totalPending + amt > card.limit_amount) {
+    return res.status(400).json({
+      error: 'Limite insuficiente',
+      available: card.limit_amount - totalPending,
+      requested: amt
+    });
+  }
+
+  const installmentAmount = amt / numInstallments;
 
   try {
     const insertTx = db.prepare(
@@ -241,21 +293,22 @@ router.post('/:id/transactions', (req, res) => {
     );
 
     const insertMany = db.transaction(() => {
-      for (let i = 1; i <= installmentCount; i++) {
+      for (let i = 1; i <= numInstallments; i++) {
         const txDate = new Date(date);
         txDate.setMonth(txDate.getMonth() + (i - 1));
+        const txDateStr = txDate.toISOString().split('T')[0];
         insertTx.run(
           card_id,
-          installmentCount > 1 ? `${description} (${i}/${installmentCount})` : description,
+          numInstallments > 1 ? `${description.trim()} (${i}/${numInstallments})` : description.trim(),
           Math.round(installmentAmount * 100) / 100,
-          txDate.toISOString().split('T')[0],
-          installmentCount,
+          txDateStr,
+          numInstallments,
           i,
           category_id || null,
           notes || ''
         );
       }
-      db.prepare('UPDATE credit_cards SET used_amount = used_amount + ? WHERE id = ?').run(amount, card_id);
+      db.prepare('UPDATE credit_cards SET used_amount = used_amount + ? WHERE id = ?').run(amt, card_id);
     });
 
     insertMany();
@@ -271,19 +324,21 @@ router.post('/:id/transactions', (req, res) => {
 
     res.status(201).json(txs);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Erro ao criar transação' });
   }
 });
 
 router.delete('/:cardId/transactions/:txId', (req, res) => {
-  const tx = db.prepare('SELECT * FROM card_transactions WHERE id = ? AND card_id = ?').get(req.params.txId, req.params.cardId);
+  const { cardId, txId } = req.params;
+  if (!/^\d+$/.test(cardId) || !/^\d+$/.test(txId)) return res.status(400).json({ error: 'ID inválido' });
+  const tx = db.prepare('SELECT * FROM card_transactions WHERE id = ? AND card_id = ?').get(txId, cardId);
   if (!tx) return res.status(404).json({ error: 'Transação não encontrada' });
 
   try {
-    db.prepare('DELETE FROM card_transactions WHERE id = ?').run(req.params.txId);
+    db.prepare('DELETE FROM card_transactions WHERE id = ?').run(txId);
     res.json({ success: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Erro ao excluir transação' });
   }
 });
 

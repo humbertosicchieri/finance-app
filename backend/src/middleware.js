@@ -1,5 +1,6 @@
 const jwt = require('jsonwebtoken');
-const JWT_SECRET = require('./config');
+const db = require('./database');
+const { JWT_SECRET } = require('./config');
 
 function authMiddleware(req, res, next) {
   const authHeader = req.headers.authorization;
@@ -12,7 +13,13 @@ function authMiddleware(req, res, next) {
 
   try {
     const decoded = jwt.verify(token, JWT_SECRET);
-    req.user = decoded;
+
+    const user = db.prepare('SELECT id, username, name, role, is_active FROM users WHERE id = ?').get(decoded.id);
+    if (!user || !user.is_active) {
+      return res.status(401).json({ error: 'Usuário desativado ou não encontrado' });
+    }
+
+    req.user = { id: user.id, username: user.username, name: user.name, role: user.role };
     next();
   } catch (err) {
     return res.status(401).json({ error: 'Token inválido ou expirado' });

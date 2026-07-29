@@ -15,14 +15,18 @@ router.get('/', (req, res) => {
   const params = [];
 
   if (month && year) {
+    if (!/^\d{1,2}$/.test(month) || month < 1 || month > 12) return res.status(400).json({ error: 'Mês inválido' });
+    if (!/^\d{4}$/.test(year)) return res.status(400).json({ error: 'Ano inválido' });
     query += ` AND strftime('%m', e.date) = ? AND strftime('%Y', e.date) = ?`;
-    params.push(month.padStart(2, '0'), year);
+    params.push(String(month).padStart(2, '0'), String(year));
   }
   if (type) {
+    if (!['fixed', 'variable'].includes(type)) return res.status(400).json({ error: 'Tipo inválido' });
     query += ` AND e.expense_type = ?`;
     params.push(type);
   }
   if (category_id) {
+    if (!/^\d+$/.test(String(category_id))) return res.status(400).json({ error: 'Categoria inválida' });
     query += ` AND e.category_id = ?`;
     params.push(category_id);
   }
@@ -39,30 +43,39 @@ router.post('/', (req, res) => {
     recurrence_interval, notes
   } = req.body;
 
-  if (!description || !amount || !date) {
-    return res.status(400).json({ error: 'Campos obrigatórios: description, amount, date' });
+  if (!description || typeof description !== 'string' || description.trim().length === 0) {
+    return res.status(400).json({ error: 'Descrição é obrigatória' });
+  }
+  const amt = parseFloat(amount);
+  if (isNaN(amt) || amt <= 0) return res.status(400).json({ error: 'Valor deve ser um número positivo' });
+  if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ error: 'Data inválida (AAAA-MM-DD)' });
+  if (expense_type && !['fixed', 'variable'].includes(expense_type)) {
+    return res.status(400).json({ error: 'Tipo de despesa inválido' });
+  }
+  if (recurrence_interval && !['monthly', 'weekly', 'yearly'].includes(recurrence_interval)) {
+    return res.status(400).json({ error: 'Intervalo de recorrência inválido' });
   }
 
   const isFixed = expense_type === 'fixed';
-  const recurrenceRemaining = is_recurring ? (recurrence_count || null) : 0;
+  const recurrenceRemaining = is_recurring ? (parseInt(recurrence_count) || 0) : 0;
 
   try {
     const result = db.prepare(`
       INSERT INTO expenses (description, amount, date, category_id, card_id, expense_type, is_recurring, recurrence_count, recurrence_remaining, recurrence_interval, notes)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
-      description, amount, date,
+      description.trim(), amt, date,
       category_id || null, card_id || null,
       expense_type || 'variable',
       is_recurring ? 1 : 0,
-      is_recurring ? (recurrence_count || null) : null,
+      is_recurring ? (parseInt(recurrence_count) || 0) : null,
       recurrenceRemaining,
       recurrence_interval || 'monthly',
       notes || ''
     );
 
     if (card_id) {
-      db.prepare('UPDATE credit_cards SET used_amount = used_amount + ? WHERE id = ?').run(amount, card_id);
+      db.prepare('UPDATE credit_cards SET used_amount = used_amount + ? WHERE id = ?').run(amt, card_id);
     }
 
     const expense = db.prepare(`
@@ -73,17 +86,32 @@ router.post('/', (req, res) => {
 
     res.status(201).json(expense);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Erro ao criar despesa' });
   }
 });
 
 router.put('/:id', (req, res) => {
+  const { id } = req.params;
+  if (!/^\d+$/.test(id)) return res.status(400).json({ error: 'ID inválido' });
+
   const {
     description, amount, date, category_id, card_id,
     expense_type, is_recurring, recurrence_count,
     recurrence_remaining, recurrence_interval, is_paid, notes
   } = req.body;
-  const { id } = req.params;
+
+  if (description !== undefined && (typeof description !== 'string' || description.trim().length === 0)) {
+    return res.status(400).json({ error: 'Descrição inválida' });
+  }
+  if (amount !== undefined && (isNaN(parseFloat(amount)) || parseFloat(amount) <= 0)) {
+    return res.status(400).json({ error: 'Valor deve ser um número positivo' });
+  }
+  if (date !== undefined && !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    return res.status(400).json({ error: 'Data inválida (AAAA-MM-DD)' });
+  }
+  if (expense_type !== undefined && !['fixed', 'variable'].includes(expense_type)) {
+    return res.status(400).json({ error: 'Tipo de despesa inválido' });
+  }
 
   try {
     const old = db.prepare('SELECT * FROM expenses WHERE id = ?').get(id);
@@ -104,14 +132,14 @@ router.put('/:id', (req, res) => {
         is_paid = COALESCE(?, is_paid),
         notes = COALESCE(?, notes)
       WHERE id = ?
-    `).run(description, amount, date, category_id, card_id, expense_type, is_recurring, recurrence_count, recurrence_remaining, recurrence_interval, is_paid, notes, id);
+    `).run(description ? description.trim() : null, amount, date, category_id, card_id, expense_type, is_recurring, recurrence_count, recurrence_remaining, recurrence_interval, is_paid, notes, id);
 
     if (old.card_id !== card_id) {
       if (old.card_id) db.prepare('UPDATE credit_cards SET used_amount = MAX(0, used_amount - ?) WHERE id = ?').run(old.amount, old.card_id);
       if (card_id) db.prepare('UPDATE credit_cards SET used_amount = used_amount + ? WHERE id = ?').run(amount || old.amount, card_id);
-    } else if (card_id && amount && amount !== old.amount) {
-      const diff = amount - old.amount;
-      db.prepare('UPDATE credit_cards SET used_amount = used_amount + ? WHERE id = ?').run(diff, card_id);
+    } else if (card_id && amount && parseFloat(amount) !== old.amount) {
+      const diff = parseFloat(amount) - old.amount;
+      db.prepare('UPDATE credit_cards SET used_amount = MAX(0, used_amount + ?) WHERE id = ?').run(diff, card_id);
     }
 
     const expense = db.prepare(`
@@ -121,22 +149,24 @@ router.put('/:id', (req, res) => {
     `).get(id);
     res.json(expense);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Erro ao atualizar despesa' });
   }
 });
 
 router.delete('/:id', (req, res) => {
-  const expense = db.prepare('SELECT * FROM expenses WHERE id = ?').get(req.params.id);
+  const { id } = req.params;
+  if (!/^\d+$/.test(id)) return res.status(400).json({ error: 'ID inválido' });
+  const expense = db.prepare('SELECT * FROM expenses WHERE id = ?').get(id);
   if (!expense) return res.status(404).json({ error: 'Despesa não encontrada' });
 
   try {
-    db.prepare('DELETE FROM expenses WHERE id = ?').run(req.params.id);
+    db.prepare('DELETE FROM expenses WHERE id = ?').run(id);
     if (expense.card_id) {
       db.prepare('UPDATE credit_cards SET used_amount = MAX(0, used_amount - ?) WHERE id = ?').run(expense.amount, expense.card_id);
     }
     res.json({ success: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Erro ao excluir despesa' });
   }
 });
 
@@ -178,7 +208,7 @@ router.post('/generate-recurring', (req, res) => {
     generateAll();
     res.json({ generated, message: `${generated} despesas recorrentes geradas` });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Erro ao gerar despesas recorrentes' });
   }
 });
 
