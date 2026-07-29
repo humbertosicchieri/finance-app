@@ -33,11 +33,12 @@ function recordLoginAttempt(ip, success) {
   }
 }
 
-function setTokenCookie(res, token) {
+function setTokenCookie(req, res, token) {
+  const isSecure = req.headers['x-forwarded-proto'] === 'https' || req.secure;
   res.cookie('token', token, {
     httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'strict',
+    secure: isSecure,
+    sameSite: 'lax',
     maxAge: COOKIE_MAX_AGE,
     path: '/',
   });
@@ -101,7 +102,7 @@ router.post('/login', (req, res) => {
     { expiresIn: TOKEN_EXPIRY }
   );
 
-  setTokenCookie(res, token);
+  setTokenCookie(req, res, token);
 
   audit(user.id, 'login', { ip });
 
