@@ -52,6 +52,11 @@ if (process.env.NODE_ENV === 'production') {
   });
 }
 
+app.use((err, req, res, next) => {
+  console.error('Unhandled error:', err);
+  res.status(500).json({ error: 'Erro interno do servidor' });
+});
+
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Finance API running on port ${PORT}`);
 });

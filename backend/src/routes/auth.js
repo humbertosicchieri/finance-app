@@ -65,37 +65,38 @@ function generateJti() {
 }
 
 router.post('/login', (req, res) => {
-  const ip = req.ip;
+  try {
+    const ip = req.ip;
 
-  if (isLoginBlocked(ip)) {
-    return res.status(429).json({ error: 'Muitas tentativas. Tente novamente em 15 minutos.' });
-  }
+    if (isLoginBlocked(ip)) {
+      return res.status(429).json({ error: 'Muitas tentativas. Tente novamente em 15 minutos.' });
+    }
 
-  const { username, password } = req.body;
+    const { username, password } = req.body;
 
-  if (!username || typeof username !== 'string') {
-    return res.status(400).json({ error: 'Usuário é obrigatório' });
-  }
-  if (!password || typeof password !== 'string') {
-    return res.status(400).json({ error: 'Senha é obrigatória' });
-  }
+    if (!username || typeof username !== 'string') {
+      return res.status(400).json({ error: 'Usuário é obrigatório' });
+    }
+    if (!password || typeof password !== 'string') {
+      return res.status(400).json({ error: 'Senha é obrigatória' });
+    }
 
-  const user = db.prepare('SELECT * FROM users WHERE username = ? AND is_active = 1').get(username.trim());
+    const user = db.prepare('SELECT * FROM users WHERE username = ? AND is_active = 1').get(username.trim());
 
-  if (!user) {
-    recordLoginAttempt(ip, false);
-    return res.status(401).json({ error: 'Usuário ou senha inválidos' });
-  }
+    if (!user) {
+      recordLoginAttempt(ip, false);
+      return res.status(401).json({ error: 'Usuário ou senha inválidos' });
+    }
 
-  const passwordMatch = bcrypt.compareSync(password, user.password);
-  if (!passwordMatch) {
-    recordLoginAttempt(ip, false);
-    return res.status(401).json({ error: 'Usuário ou senha inválidos' });
-  }
+    const passwordMatch = bcrypt.compareSync(password, user.password);
+    if (!passwordMatch) {
+      recordLoginAttempt(ip, false);
+      return res.status(401).json({ error: 'Usuário ou senha inválidos' });
+    }
 
-  recordLoginAttempt(ip, true);
+    recordLoginAttempt(ip, true);
 
-  const twofa = db.prepare('SELECT enabled FROM user_2fa WHERE user_id = ?').get(user.id);
+    const twofa = db.prepare('SELECT enabled FROM user_2fa WHERE user_id = ?').get(user.id);
 
   if (twofa && twofa.enabled) {
     const tempToken = jwt.sign(
@@ -125,6 +126,10 @@ router.post('/login', (req, res) => {
     token,
     user: { id: user.id, username: user.username, name: user.name, role: user.role }
   });
+  } catch (e) {
+    console.error('Login error:', e);
+    res.status(500).json({ error: 'Erro interno do servidor' });
+  }
 });
 
 router.post('/logout', (req, res) => {
