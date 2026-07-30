@@ -122,6 +122,16 @@ db.exec(`
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
   );
 
+  CREATE TABLE IF NOT EXISTS user_2fa (
+    user_id INTEGER PRIMARY KEY,
+    secret TEXT NOT NULL,
+    enabled INTEGER DEFAULT 0,
+    backup_codes TEXT DEFAULT '[]',
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now')),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+
   CREATE INDEX IF NOT EXISTS idx_audit_log_created_at ON audit_log(created_at);
   CREATE INDEX IF NOT EXISTS idx_token_blacklist_expires ON token_blacklist(expires_at);
 `);

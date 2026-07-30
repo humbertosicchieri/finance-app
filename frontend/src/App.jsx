@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, NavLink } from 'react-router-dom';
-import { LayoutDashboard, Receipt, CreditCard, TrendingUp, LogOut, Menu, ArrowDownUp, Users as UsersIcon, Shield } from 'lucide-react';
+import { LayoutDashboard, Receipt, CreditCard, TrendingUp, LogOut, Menu, ArrowDownUp, Users as UsersIcon, Shield, Settings as SettingsIcon, ChevronDown } from 'lucide-react';
 import { auth } from './api';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
@@ -8,6 +8,7 @@ import Expenses from './pages/Expenses';
 import Cards from './pages/Cards';
 import Incomes from './pages/Incomes';
 import Users from './pages/Users';
+import Settings from './pages/Settings';
 
 const navItems = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
@@ -21,6 +22,8 @@ const adminItems = [
 ];
 
 function Sidebar({ open, setOpen, user, onLogout }) {
+  const [settingsOpen, setSettingsOpen] = useState(false);
+
   return (
     <>
       <div className={`fixed inset-0 bg-black/50 z-40 lg:hidden ${open ? 'block' : 'hidden'}`} onClick={() => setOpen(false)} />
@@ -79,6 +82,38 @@ function Sidebar({ open, setOpen, user, onLogout }) {
                 </NavLink>
               ))}
             </>
+          )}
+
+          <div className="my-3 border-t border-dark-700/50" />
+
+          <button
+            onClick={() => setSettingsOpen(!settingsOpen)}
+            className="flex items-center justify-between w-full px-4 py-3 rounded-xl text-dark-400 hover:text-white hover:bg-dark-800 transition-all duration-200"
+          >
+            <div className="flex items-center gap-3">
+              <SettingsIcon className="w-5 h-5" />
+              <span className="font-medium">Configurações</span>
+            </div>
+            <ChevronDown className={`w-4 h-4 transition-transform ${settingsOpen ? 'rotate-180' : ''}`} />
+          </button>
+
+          {settingsOpen && (
+            <div className="ml-4 space-y-1">
+              <NavLink
+                to="/settings/2fa"
+                onClick={() => setOpen(false)}
+                className={({ isActive }) =>
+                  `flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm transition-all duration-200 ${
+                    isActive
+                      ? 'bg-primary-600/20 text-primary-400'
+                      : 'text-dark-400 hover:text-white hover:bg-dark-800'
+                  }`
+                }
+              >
+                <Shield className="w-4 h-4" />
+                <span>Autenticação 2FA</span>
+              </NavLink>
+            </div>
           )}
         </nav>
 
@@ -172,6 +207,7 @@ export default function App() {
               <Route path="/cards" element={<Cards />} />
               <Route path="/incomes" element={<Incomes />} />
               <Route path="/users" element={<Users currentUser={user} />} />
+              <Route path="/settings/2fa" element={<Settings currentUser={user} />} />
             </Routes>
           </main>
         </div>

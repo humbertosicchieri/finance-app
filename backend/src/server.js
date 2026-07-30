@@ -36,6 +36,7 @@ app.use(cookieParser());
 app.use(express.json({ limit: '1mb' }));
 
 app.use('/api/auth', require('./routes/auth'));
+app.use('/api/2fa', require('./routes/2fa'));
 app.get('/api/health', (req, res) => res.json({ status: 'ok', timestamp: new Date().toISOString() }));
 
 app.use('/api/categories', authMiddleware, require('./routes/categories'));

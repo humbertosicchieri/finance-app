@@ -95,6 +95,21 @@ router.post('/login', (req, res) => {
 
   recordLoginAttempt(ip, true);
 
+  const twofa = db.prepare('SELECT enabled FROM user_2fa WHERE user_id = ?').get(user.id);
+
+  if (twofa && twofa.enabled) {
+    const tempToken = jwt.sign(
+      { id: user.id, purpose: '2fa_login' },
+      JWT_SECRET,
+      { expiresIn: '5m' }
+    );
+    return res.json({
+      requires2fa: true,
+      tempToken,
+      username: user.username,
+    });
+  }
+
   const jti = generateJti();
   const token = jwt.sign(
     { id: user.id, username: user.username, name: user.name, role: user.role, jti },
@@ -293,3 +308,4 @@ router.delete('/users/:id', authMiddleware, (req, res) => {
 });
 
 module.exports = router;
+module.exports.setTokenCookie = setTokenCookie;

@@ -44,6 +44,24 @@ export const auth = {
       throw new Error(err.error || 'Erro na requisição');
     }
     const data = await res.json();
+    if (data.requires2fa) {
+      return data; // { requires2fa, tempToken, username }
+    }
+    tokenMemory = data.token;
+    return data;
+  },
+  verify2fa: async (tempToken, code) => {
+    const res = await fetch(`${API_BASE}/2fa/verify-login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tempToken, code }),
+      credentials: 'include',
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Código inválido' }));
+      throw new Error(err.error || 'Código 2FA inválido');
+    }
+    const data = await res.json();
     tokenMemory = data.token;
     return data;
   },
@@ -119,5 +137,11 @@ export const api = {
     update: (id, data) => request(`/auth/users/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     delete: (id) => request(`/auth/users/${id}`, { method: 'DELETE' }),
     changePassword: (id, data) => request(`/auth/users/${id}/password`, { method: 'PUT', body: JSON.stringify(data) }),
+  },
+  twofa: {
+    setup: () => request('/2fa/setup', { method: 'POST' }),
+    enable: (code) => request('/2fa/enable', { method: 'POST', body: JSON.stringify({ code }) }),
+    disable: (code, password) => request('/2fa/disable', { method: 'POST', body: JSON.stringify({ code, password }) }),
+    status: () => request('/2fa/status'),
   },
 };
